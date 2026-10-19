@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Mic, MicOff, Plus } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useHousehold } from '../lib/household'
+import { useNotifications } from '../lib/notificationsContext'
 import { supabase } from '../lib/supabase'
 import {
   OFFLINE_MSG,
@@ -13,8 +14,20 @@ import {
   HIGH_RISK_WARNING,
 } from '../lib/constants'
 import { translateViaEdge } from '../lib/translateClient'
-import { enqueueMutation, flushQueue, peekQueue } from '../lib/offlineQueue'
-import TaskCard from '../components/TaskCard'
+import {
+  enqueueMutation,
+  flushQueue,
+  peekQueue,
+  pendingTaskIds,
+} from '../lib/offlineQueue'
+import {
+  partitionTodayTasks,
+  summarizeCounts,
+  pickNextTask,
+  unreadAssignedTaskIds,
+  deriveUnreadCommentTaskIds,
+  aggregateCommentCounts,
+} from '../lib/todayClassify'
 import Modal from '../components/Modal'
 import Toast from '../components/Toast'
 import AddTaskFlow from '../components/presets/AddTaskFlow'
@@ -23,6 +36,16 @@ import EditTaskModal from '../components/EditTaskModal'
 import AssigneePicker from '../components/presets/AssigneePicker'
 import { fetchActiveHelpers } from '../lib/assignees'
 import { createCustomTask, mapBatchError } from '../lib/presets'
+import TodaySummaryStrip from '../components/today/TodaySummaryStrip'
+import NeedsAttentionSection from '../components/today/NeedsAttentionSection'
+import NewTasksSection from '../components/today/NewTasksSection'
+import NextTaskHero from '../components/today/NextTaskHero'
+import TodayTimeline from '../components/today/TodayTimeline'
+import CompletedSection from '../components/today/CompletedSection'
+import OverdueSection from '../components/today/OverdueSection'
+import TaskDetailSheet from '../components/today/TaskDetailSheet'
+
+const TASK_CHANNEL_PREFIX = 'hola-kakak-today-tasks-'
 
 export default function Today() {
   const { user } = useAuth()
@@ -34,8 +57,13 @@ export default function Today() {
     canEditTasks,
     previewHelper,
   } = useHousehold()
+  const { items: notifItems } = useNotifications()
 
   const [tasks, setTasks] = useState([])
+  const [templatesById, setTemplatesById] = useState({})
+  const [commentCounts, setCommentCounts] = useState({})
+  const [unreadCommentTaskIds, setUnreadCommentTaskIds] = useState(() => new Set())
+  const [assigneeNames, setAssigneeNames] = useState({})
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [toastOffline, setToastOffline] = useState(false)
@@ -57,9 +85,36 @@ export default function Today() {
   const [commentText, setCommentText] = useState('')
   const [pendingAction, setPendingAction] = useState(null)
   const [pendingCount, setPendingCount] = useState(0)
+  const [pendingIds, setPendingIds] = useState(() => new Set())
   const [editTask, setEditTask] = useState(null)
+  const [detailTask, setDetailTask] = useState(null)
   const [searchParams] = useSearchParams()
   const deepTaskId = searchParams.get('task')
+  const channelRef = useRef(null)
+  const tasksRef = useRef(tasks)
+  const [nowTick, setNowTick] = useState(() => Date.now())
+
+  useEffect(() => {
+    tasksRef.current = tasks
+  }, [tasks])
+
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const queueScope = useMemo(
+    () => ({
+      userId: user?.id || null,
+      householdId: household?.id || null,
+    }),
+    [user?.id, household?.id],
+  )
+
+  const refreshPending = useCallback(() => {
+    setPendingCount(peekQueue(queueScope).length)
+    setPendingIds(pendingTaskIds(queueScope))
+  }, [queueScope])
 
   useEffect(() => {
     if (!showAdd || !household?.id) return
@@ -77,26 +132,112 @@ export default function Today() {
     setTimeout(() => setToast(''), 3200)
   }, [])
 
+  const mergeTemplatesAndComments = useCallback(async (rows, hhId) => {
+    const list = rows || []
+    const templateIds = [
+      ...new Set(list.map((t) => t.template_id).filter(Boolean)),
+    ]
+    const occurrenceIds = list.map((t) => t.id).filter(Boolean)
+
+    const assigneeIds = [
+      ...new Set(
+        [
+          ...list.map((t) => t.assigned_to).filter(Boolean),
+          ...list.map((t) => t.created_by).filter(Boolean),
+        ],
+      ),
+    ]
+
+    const [tplRes, commentRes, profileRes, helperRes] = await Promise.all([
+      templateIds.length
+        ? supabase
+            .from('task_templates')
+            .select(
+              'id, recurrence_rule, recurrence_weekdays, recurrence_interval, default_time, start_date, end_date, paused_at, is_active, title_zh, title_id',
+            )
+            .in('id', templateIds)
+        : Promise.resolve({ data: [] }),
+      occurrenceIds.length
+        ? supabase
+            .from('task_comments')
+            .select('task_occurrence_id, message, created_at, user_id')
+            .in('task_occurrence_id', occurrenceIds)
+        : Promise.resolve({ data: [] }),
+      assigneeIds.length
+        ? supabase
+            .from('profiles')
+            .select('id, display_name')
+            .in('id', assigneeIds)
+        : Promise.resolve({ data: [] }),
+      hhId ? fetchActiveHelpers(hhId) : Promise.resolve([]),
+    ])
+
+    const tplMap = {}
+    for (const t of tplRes.data || []) tplMap[t.id] = t
+    setTemplatesById(tplMap)
+
+    const comments = commentRes.data || []
+    setCommentCounts(aggregateCommentCounts(comments))
+    setUnreadCommentTaskIds(
+      deriveUnreadCommentTaskIds(comments, user?.id),
+    )
+
+    const names = {}
+    for (const p of profileRes.data || []) {
+      names[p.id] = p.display_name || p.id.slice(0, 8)
+    }
+    for (const h of helperRes || []) {
+      if (h.user_id && !names[h.user_id]) {
+        names[h.user_id] = h.display_name
+      }
+    }
+    setAssigneeNames(names)
+  }, [user?.id])
+
   const loadTasks = useCallback(async () => {
     if (!household?.id) return
     setLoading(true)
-    await ensureToday()
-    const date = todayHK()
-    const { data, error } = await supabase
-      .from('task_occurrences')
-      .select('*')
-      .eq('household_id', household.id)
-      .eq('task_date', date)
-      .is('deleted_at', null)
-      .order('due_at', { ascending: true, nullsFirst: false })
+    try {
+      await ensureToday()
+      const date = todayHK()
+      const { data, error } = await supabase
+        .from('task_occurrences')
+        .select('*')
+        .eq('household_id', household.id)
+        .eq('task_date', date)
+        .is('deleted_at', null)
+        .order('due_at', { ascending: true, nullsFirst: false })
 
-    if (error) {
-      showToast(effectiveIsHelper ? 'Gagal memuat' : '載入失敗')
-    } else {
-      setTasks(data || [])
+      if (error) {
+        showToast(effectiveIsHelper ? 'Gagal memuat' : '載入失敗')
+      } else {
+        const rows = data || []
+        setTasks(rows)
+        await mergeTemplatesAndComments(rows, household.id)
+      }
+    } finally {
+      setLoading(false)
+      refreshPending()
     }
-    setLoading(false)
-  }, [household?.id, ensureToday, showToast, effectiveIsHelper])
+  }, [
+    household?.id,
+    ensureToday,
+    showToast,
+    effectiveIsHelper,
+    mergeTemplatesAndComments,
+    refreshPending,
+  ])
+
+  // Clear tasks when household changes
+  useEffect(() => {
+    setTasks([])
+    setTemplatesById({})
+    setCommentCounts({})
+    setUnreadCommentTaskIds(new Set())
+    setAssigneeNames({})
+    setDetailTask(null)
+    setEditTask(null)
+  }, [household?.id])
 
   useEffect(() => {
     loadTasks()
@@ -108,8 +249,9 @@ export default function Today() {
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [deepTaskId, loading, tasks])
 
+  // Offline flush + visibility refetch
   useEffect(() => {
-    setPendingCount(peekQueue().length)
+    refreshPending()
     async function onOnline() {
       const result = await flushQueue(async (m) => {
         if (m.type === 'update_task') {
@@ -128,46 +270,229 @@ export default function Today() {
             })
           }
         }
-      })
-      setPendingCount(peekQueue().length)
+      }, queueScope)
+      refreshPending()
       if (result.flushed) {
         showToast(effectiveIsHelper ? 'Tersinkron' : '已同步')
         loadTasks()
       }
     }
+    function onVis() {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        loadTasks()
+      }
+    }
     window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
-  }, [user, showToast, effectiveIsHelper, loadTasks])
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [
+    user,
+    showToast,
+    effectiveIsHelper,
+    loadTasks,
+    queueScope,
+    refreshPending,
+  ])
 
-  const sorted = useMemo(() => {
-    const order = [
-      'needs_clarification',
-      'delayed',
-      'cannot_complete',
-      'in_progress',
-      'acknowledged',
-      'pending',
-      'completed',
-      'cancelled',
+  // Realtime: task_occurrences (+ comments) for this household
+  useEffect(() => {
+    let cancelled = false
+    async function setup() {
+      if (channelRef.current) {
+        await supabase.removeChannel(channelRef.current)
+        channelRef.current = null
+      }
+      if (!household?.id || cancelled) return
+
+      const name = `${TASK_CHANNEL_PREFIX}${household.id}`
+      const channel = supabase
+        .channel(name)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'task_occurrences',
+            filter: `household_id=eq.${household.id}`,
+          },
+          (payload) => {
+            const date = todayHK()
+            const row = payload.new || payload.old
+            if (!row) return
+
+            if (payload.eventType === 'DELETE' || row.deleted_at) {
+              setTasks((prev) => prev.filter((t) => t.id !== row.id))
+              return
+            }
+
+            // Only keep today's tasks in the list
+            if (row.task_date && row.task_date !== date) {
+              setTasks((prev) => prev.filter((t) => t.id !== row.id))
+              return
+            }
+
+            setTasks((prev) => {
+              const idx = prev.findIndex((t) => t.id === row.id)
+              if (idx === -1) {
+                // Prefer higher version / newer
+                return [...prev, row]
+              }
+              const cur = prev[idx]
+              if (
+                typeof row.version === 'number' &&
+                typeof cur.version === 'number' &&
+                row.version < cur.version
+              ) {
+                return prev
+              }
+              const next = [...prev]
+              next[idx] = { ...cur, ...row }
+              return next
+            })
+          },
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'task_comments',
+            filter: `household_id=eq.${household.id}`,
+          },
+          () => {
+            // Soft refresh comment aggregates without full page reload
+            const ids = tasksRef.current.map((t) => t.id)
+            if (!ids.length) return
+            supabase
+              .from('task_comments')
+              .select('task_occurrence_id, message, created_at, user_id')
+              .in('task_occurrence_id', ids)
+              .then(({ data }) => {
+                setCommentCounts(aggregateCommentCounts(data || []))
+                setUnreadCommentTaskIds(
+                  deriveUnreadCommentTaskIds(data || [], user?.id),
+                )
+              })
+          },
+        )
+        .subscribe()
+
+      channelRef.current = channel
+    }
+    setup()
+    return () => {
+      cancelled = true
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current)
+        channelRef.current = null
+      }
+    }
+  }, [household?.id, user?.id])
+
+  // When templates missing for newly inserted realtime rows, fetch them
+  useEffect(() => {
+    const missing = [
+      ...new Set(
+        tasks
+          .map((t) => t.template_id)
+          .filter((id) => id && !templatesById[id]),
+      ),
     ]
-    return [...tasks].sort((a, b) => {
-      const ai = order.indexOf(a.status)
-      const bi = order.indexOf(b.status)
-      if (ai !== bi) return ai - bi
-      return (a.due_at || '').localeCompare(b.due_at || '')
-    })
-  }, [tasks])
+    if (!missing.length) return
+    let cancelled = false
+    supabase
+      .from('task_templates')
+      .select(
+        'id, recurrence_rule, recurrence_weekdays, recurrence_interval, default_time, start_date, end_date, paused_at, is_active, title_zh, title_id',
+      )
+      .in('id', missing)
+      .then(({ data }) => {
+        if (cancelled || !data?.length) return
+        setTemplatesById((prev) => {
+          const next = { ...prev }
+          for (const t of data) next[t.id] = t
+          return next
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tasks, templatesById])
 
-  const nextTask = sorted.find((t) =>
-    !['completed', 'cancelled'].includes(t.status),
+  const unreadTaskIds = useMemo(
+    () => unreadAssignedTaskIds(notifItems),
+    [notifItems],
   )
-  const questions = sorted.filter((t) => t.status === 'needs_clarification')
-  const overdue = sorted.filter((t) => {
-    if (['completed', 'cancelled'].includes(t.status)) return false
-    if (!t.due_at) return false
-    return new Date(t.due_at) < new Date()
-  })
-  const completed = sorted.filter((t) => t.status === 'completed')
+
+  const classifyCtx = useMemo(
+    () => ({
+      isHelper: effectiveIsHelper,
+      currentUserId: user?.id,
+      unreadTaskIds,
+      unreadCommentTaskIds,
+      now: new Date(nowTick),
+    }),
+    [
+      effectiveIsHelper,
+      user?.id,
+      unreadTaskIds,
+      unreadCommentTaskIds,
+      nowTick,
+    ],
+  )
+
+  const sections = useMemo(
+    () => partitionTodayTasks(tasks, classifyCtx),
+    [tasks, classifyCtx],
+  )
+
+  const counts = useMemo(
+    () => summarizeCounts(tasks, classifyCtx),
+    [tasks, classifyCtx],
+  )
+
+  // Helper hero: pick from incomplete assigned tasks not in needs_attention / new_task
+  const heroTask = useMemo(() => {
+    if (!effectiveIsHelper) return null
+    const exclude = new Set([
+      ...sections.needs_attention.map((t) => t.id),
+      ...sections.new_task.map((t) => t.id),
+    ])
+    const pool = tasks.filter(
+      (t) =>
+        !exclude.has(t.id) &&
+        t.status !== 'completed' &&
+        t.status !== 'cancelled',
+    )
+    return pickNextTask(pool, classifyCtx)
+  }, [effectiveIsHelper, sections, tasks, classifyCtx])
+
+  const timelineExcludeIds = useMemo(() => {
+    const ids = new Set()
+    for (const t of sections.needs_attention) ids.add(t.id)
+    for (const t of sections.new_task) ids.add(t.id)
+    if (!effectiveIsHelper) {
+      for (const t of sections.overdue) ids.add(t.id)
+    }
+    if (heroTask?.id) ids.add(heroTask.id)
+    return ids
+  }, [sections, effectiveIsHelper, heroTask])
+
+  const timelineTasks = useMemo(() => {
+    // Employer: upcoming + later (overdue shown separately)
+    // Helper: overdue + upcoming + later (hero excluded)
+    if (effectiveIsHelper) {
+      return [
+        ...sections.overdue,
+        ...sections.upcoming,
+        ...sections.later,
+      ]
+    }
+    return [...sections.upcoming, ...sections.later]
+  }, [sections, effectiveIsHelper])
 
   async function applyStatus(task, action, comment) {
     const patch = { status: action.status }
@@ -195,17 +520,20 @@ export default function Today() {
       setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
       showToast(effectiveIsHelper ? 'Diperbarui' : '已更新')
     } catch (err) {
-      enqueueMutation({
-        type: 'update_task',
-        payload: {
-          id: task.id,
-          version: task.version,
-          patch,
-          comment: comment || null,
-          household_id: household.id,
+      enqueueMutation(
+        {
+          type: 'update_task',
+          payload: {
+            id: task.id,
+            version: task.version,
+            patch,
+            comment: comment || null,
+            household_id: household.id,
+          },
         },
-      })
-      setPendingCount(peekQueue().length)
+        queueScope,
+      )
+      refreshPending()
       setTasks((prev) =>
         prev.map((t) =>
           t.id === task.id
@@ -253,7 +581,6 @@ export default function Today() {
     if (!formZh.trim()) return
     setTranslating(true)
     try {
-      // Record translation consent
       await supabase.from('privacy_consents').upsert(
         {
           user_id: user.id,
@@ -328,6 +655,12 @@ export default function Today() {
   }
 
   const riskForm = isHighRisk(formZh)
+  const cardShared = {
+    assigneeNames,
+    templatesById,
+    commentCounts,
+    pendingIds,
+  }
 
   return (
     <div className="space-y-5 pb-4">
@@ -336,140 +669,176 @@ export default function Today() {
           role="status"
           className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
         >
-          {effectiveIsHelper ? OFFLINE_MSG.id : OFFLINE_MSG.zh} ({pendingCount})
+          {effectiveIsHelper
+            ? `Perubahan belum disinkronkan (${pendingCount})`
+            : `變更尚未同步 (${pendingCount})`}
         </div>
       )}
 
-      {canEditTasks && !previewHelper && household?.id && (
-        <QuickAddSection
-          householdId={household.id}
-          userId={user.id}
-          ensureToday={ensureToday}
-          onCreated={loadTasks}
-          onToast={showToast}
-          onBrowseAll={() => setShowAdd(true)}
+      {!loading && (
+        <TodaySummaryStrip
+          counts={counts}
+          isHelper={effectiveIsHelper}
         />
       )}
 
       {loading ? (
         <p className="text-center text-slate-500">…</p>
+      ) : effectiveIsHelper ? (
+        <>
+          <NewTasksSection
+            tasks={sections.new_task}
+            deepTaskId={deepTaskId}
+            canAct={!previewHelper}
+            readOnly={previewHelper}
+            onOpen={setDetailTask}
+            onStatusAction={onStatusAction}
+            unreadTaskIds={unreadTaskIds}
+            {...cardShared}
+          />
+
+          <NeedsAttentionSection
+            tasks={sections.needs_attention}
+            isHelper
+            deepTaskId={deepTaskId}
+            canAct={!previewHelper}
+            canEdit={false}
+            readOnly={previewHelper}
+            onOpen={setDetailTask}
+            onStatusAction={onStatusAction}
+            emptyHint={
+              sections.needs_attention.length === 0
+                ? 'Tidak ada masalah yang perlu ditangani hari ini'
+                : null
+            }
+            {...cardShared}
+          />
+
+          <NextTaskHero
+            task={heroTask}
+            deepTaskId={deepTaskId}
+            canAct={!previewHelper}
+            readOnly={previewHelper}
+            onOpen={setDetailTask}
+            onStatusAction={onStatusAction}
+            assigneeName={
+              heroTask ? assigneeNames[heroTask.assigned_to] : undefined
+            }
+            template={
+              heroTask?.template_id
+                ? templatesById[heroTask.template_id]
+                : undefined
+            }
+            commentCount={heroTask ? commentCounts[heroTask.id] || 0 : 0}
+            unsynced={heroTask ? pendingIds.has(heroTask.id) : false}
+            showNewBadge={false}
+            hasUnreadNotif={
+              heroTask ? unreadTaskIds.has(heroTask.id) : false
+            }
+          />
+
+          <TodayTimeline
+            tasks={timelineTasks}
+            isHelper
+            deepTaskId={deepTaskId}
+            canAct={!previewHelper}
+            canEdit={false}
+            readOnly={previewHelper}
+            onOpen={setDetailTask}
+            onStatusAction={onStatusAction}
+            excludeIds={timelineExcludeIds}
+            unreadTaskIds={unreadTaskIds}
+            {...cardShared}
+          />
+
+          <CompletedSection
+            tasks={sections.completed}
+            isHelper
+            deepTaskId={deepTaskId}
+            onOpen={setDetailTask}
+            {...cardShared}
+          />
+        </>
       ) : (
         <>
-          {nextTask && (
-            <section>
-              <h2
-                lang={effectiveIsHelper ? 'id' : 'zh-Hant'}
-                className="mb-2 text-sm font-bold text-slate-500"
-              >
-                {effectiveIsHelper ? 'Tugas berikutnya' : '下一項'}
-              </h2>
-              <TaskCard
-                task={nextTask}
-                highlight={deepTaskId ? deepTaskId === nextTask.id : true}
-                isHelperView={effectiveIsHelper}
-                canAct={effectiveIsHelper && !previewHelper}
-                readOnly={previewHelper}
-                canEdit={canEditTasks && !previewHelper}
-                onEdit={setEditTask}
-                onStatusAction={(a) => onStatusAction(nextTask, a)}
-              />
-            </section>
+          <NeedsAttentionSection
+            tasks={sections.needs_attention}
+            isHelper={false}
+            deepTaskId={deepTaskId}
+            canAct={false}
+            canEdit={canEditTasks && !previewHelper}
+            readOnly={previewHelper}
+            onEdit={setEditTask}
+            onOpen={setDetailTask}
+            emptyHint={
+              sections.needs_attention.length === 0
+                ? '今日沒有需要處理的問題'
+                : null
+            }
+            {...cardShared}
+          />
+
+          <OverdueSection
+            tasks={sections.overdue}
+            isHelper={false}
+            deepTaskId={deepTaskId}
+            canAct={false}
+            canEdit={canEditTasks && !previewHelper}
+            readOnly={previewHelper}
+            onEdit={setEditTask}
+            onOpen={setDetailTask}
+            {...cardShared}
+          />
+
+          {canEditTasks && !previewHelper && household?.id && (
+            <QuickAddSection
+              householdId={household.id}
+              userId={user.id}
+              ensureToday={ensureToday}
+              onCreated={loadTasks}
+              onToast={showToast}
+              onBrowseAll={() => setShowAdd(true)}
+            />
           )}
 
-          {!effectiveIsHelper && questions.length > 0 && (
-            <section>
-              <h2 lang="zh-Hant" className="mb-2 text-sm font-bold text-amber-800">
-                姐姐有問題 ({questions.length})
-              </h2>
-              <div className="space-y-3">
-                {questions.map((t) => (
-                  <TaskCard
-                    key={t.id}
-                    task={t}
-                    highlight={deepTaskId === t.id}
-                    isHelperView={false}
-                    canAct={false}
-                    canEdit={canEditTasks && !previewHelper}
-                    onEdit={setEditTask}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {overdue.length > 0 && (
-            <section>
-              <h2
-                lang={effectiveIsHelper ? 'id' : 'zh-Hant'}
-                className="mb-2 text-sm font-bold text-rose-700"
+          <div className="flex justify-end">
+            {canEditTasks && !previewHelper && (
+              <button
+                type="button"
+                onClick={() => setShowAdd(true)}
+                aria-label="新增任務"
+                className="inline-flex min-h-11 items-center gap-1 rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
               >
-                {effectiveIsHelper ? 'Terlambat' : '已過時'}
-              </h2>
-              <div className="space-y-3">
-                {overdue.map((t) => (
-                  <TaskCard
-                    key={t.id}
-                    task={t}
-                    highlight={deepTaskId === t.id}
-                    isHelperView={effectiveIsHelper}
-                    canAct={effectiveIsHelper && !previewHelper}
-                    readOnly={previewHelper}
-                    canEdit={canEditTasks && !previewHelper}
-                onEdit={setEditTask}
-                onStatusAction={(a) => onStatusAction(t, a)}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
+                <Plus className="h-4 w-4" aria-hidden />
+                新增
+              </button>
+            )}
+          </div>
 
-          <section>
-            <div className="mb-2 flex items-center justify-between">
-              <h2
-                lang={effectiveIsHelper ? 'id' : 'zh-Hant'}
-                className="text-sm font-bold text-slate-500"
-              >
-                {effectiveIsHelper ? 'Jadwal hari ini' : '今日時間線'}
-              </h2>
-              {canEditTasks && !previewHelper && (
-                <button
-                  type="button"
-                  onClick={() => setShowAdd(true)}
-                  aria-label="新增任務"
-                  className="inline-flex min-h-11 items-center gap-1 rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
-                >
-                  <Plus className="h-4 w-4" aria-hidden />
-                  新增
-                </button>
-              )}
-            </div>
-            <div className="space-y-3">
-              {sorted.length === 0 && (
-                <p className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-slate-500">
-                  {effectiveIsHelper
-                    ? 'Belum ada tugas hari ini'
-                    : '今日未有任務 — 撳「新增」開始'}
-                </p>
-              )}
-              {sorted.map((t) => (
-                <TaskCard
-                  key={t.id}
-                  task={t}
-                    highlight={deepTaskId === t.id}
-                  isHelperView={effectiveIsHelper}
-                  canAct={effectiveIsHelper && !previewHelper}
-                  readOnly={previewHelper}
-                  canEdit={canEditTasks && !previewHelper}
-                onEdit={setEditTask}
-                onStatusAction={(a) => onStatusAction(t, a)}
-                />
-              ))}
-            </div>
-          </section>
+          <TodayTimeline
+            tasks={timelineTasks}
+            isHelper={false}
+            deepTaskId={deepTaskId}
+            canAct={false}
+            canEdit={canEditTasks && !previewHelper}
+            readOnly={previewHelper}
+            onEdit={setEditTask}
+            onOpen={setDetailTask}
+            excludeIds={timelineExcludeIds}
+            {...cardShared}
+          />
 
-          {completed.length > 0 && !effectiveIsHelper && (
-            <p className="text-center text-xs text-slate-400">
-              今日已完成 {completed.length} 項
+          <CompletedSection
+            tasks={sections.completed}
+            isHelper={false}
+            deepTaskId={deepTaskId}
+            onOpen={setDetailTask}
+            {...cardShared}
+          />
+
+          {tasks.length === 0 && (
+            <p className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-slate-500">
+              今日未有任務 — 撳「新增」開始
             </p>
           )}
         </>
@@ -701,6 +1070,28 @@ export default function Today() {
             loadTasks()
           }
         }}
+      />
+
+      <TaskDetailSheet
+        open={!!detailTask}
+        task={detailTask}
+        onClose={() => setDetailTask(null)}
+        isHelper={effectiveIsHelper}
+        canEdit={canEditTasks && !previewHelper && !effectiveIsHelper}
+        onEdit={setEditTask}
+        assigneeName={
+          detailTask ? assigneeNames[detailTask.assigned_to] : undefined
+        }
+        template={
+          detailTask?.template_id
+            ? templatesById[detailTask.template_id]
+            : undefined
+        }
+        createdByName={
+          detailTask?.created_by
+            ? assigneeNames[detailTask.created_by]
+            : undefined
+        }
       />
 
       <Toast message={toast} offline={toastOffline} />

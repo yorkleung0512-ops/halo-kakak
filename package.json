@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test:presets": "node scripts/presets-unit.mjs",
     "test:rls": "node scripts/rls-smoke.mjs",
-    "test:notifications": "node scripts/notifications-unit.mjs"
+    "test:notifications": "node scripts/notifications-unit.mjs",
+    "test:today": "node scripts/today-unit.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
