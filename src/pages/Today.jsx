@@ -19,6 +19,8 @@ import Toast from '../components/Toast'
 import AddTaskFlow from '../components/presets/AddTaskFlow'
 import QuickAddSection from '../components/presets/QuickAddSection'
 import EditTaskModal from '../components/EditTaskModal'
+import AssigneePicker from '../components/presets/AssigneePicker'
+import { fetchActiveHelpers } from '../lib/assignees'
 
 export default function Today() {
   const { user } = useAuth()
@@ -41,6 +43,10 @@ export default function Today() {
   const [formTime, setFormTime] = useState('09:00')
   const [formRecurrence, setFormRecurrence] = useState('none')
   const [formUrgent, setFormUrgent] = useState(false)
+  const [formAddZh, setFormAddZh] = useState('')
+  const [formAddId, setFormAddId] = useState('')
+  const [formAssignedTo, setFormAssignedTo] = useState(null)
+  const [helpers, setHelpers] = useState([])
   const [approveTranslation, setApproveTranslation] = useState(false)
   const [translating, setTranslating] = useState(false)
   const [privacyOk, setPrivacyOk] = useState(false)
@@ -50,6 +56,16 @@ export default function Today() {
   const [pendingAction, setPendingAction] = useState(null)
   const [pendingCount, setPendingCount] = useState(0)
   const [editTask, setEditTask] = useState(null)
+
+  useEffect(() => {
+    if (!showAdd || !household?.id) return
+    fetchActiveHelpers(household.id).then((list) => {
+      setHelpers(list)
+      setFormAssignedTo((prev) =>
+        prev || (list.length === 1 ? list[0].user_id : null),
+      )
+    })
+  }, [showAdd, household?.id])
 
   const showToast = useCallback((msg, offline = false) => {
     setToast(msg)
@@ -334,6 +350,9 @@ export default function Today() {
     setShowAdd(false)
     setFormZh('')
     setFormId('')
+    setFormAddZh('')
+    setFormAddId('')
+    setFormAssignedTo(null)
     setApproveTranslation(false)
     showToast('已新增')
     loadTasks()
@@ -352,6 +371,9 @@ export default function Today() {
       due_at: dueAt,
       title_zh: formZh.trim(),
       title_id: formId.trim(),
+      additional_instructions_zh: formAddZh,
+      additional_instructions_id: formAddId,
+      assigned_to: formAssignedTo || null,
       priority: formUrgent ? 'urgent' : 'normal',
       status: 'pending',
       created_by: user.id,
@@ -375,6 +397,9 @@ export default function Today() {
         household_id: household.id,
         title_zh: formZh.trim(),
         title_id: formId.trim(),
+        additional_instructions_zh: formAddZh,
+        additional_instructions_id: formAddId,
+        assigned_to: formAssignedTo || null,
         default_time: formTime || null,
         recurrence_rule: formRecurrence,
         priority: formUrgent ? 'urgent' : 'normal',
@@ -391,6 +416,9 @@ export default function Today() {
     setShowAdd(false)
     setFormZh('')
     setFormId('')
+    setFormAddZh('')
+    setFormAddId('')
+    setFormAssignedTo(null)
     setApproveTranslation(false)
     showToast('已新增')
     loadTasks()
@@ -665,6 +693,38 @@ export default function Today() {
               </select>
             </div>
           </div>
+
+          <div>
+            <label className="text-sm" htmlFor="task-add-zh" lang="zh-Hant">
+              補充指示
+            </label>
+            <textarea
+              id="task-add-zh"
+              lang="zh-Hant"
+              rows={2}
+              value={formAddZh}
+              onChange={(e) => setFormAddZh(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+            <label className="mt-2 block text-sm" htmlFor="task-add-id" lang="id">
+              Instruksi tambahan
+            </label>
+            <textarea
+              id="task-add-id"
+              lang="id"
+              rows={2}
+              value={formAddId}
+              onChange={(e) => setFormAddId(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <AssigneePicker
+            id="task-assignee"
+            helpers={helpers}
+            value={formAssignedTo || ''}
+            onChange={setFormAssignedTo}
+          />
 
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input

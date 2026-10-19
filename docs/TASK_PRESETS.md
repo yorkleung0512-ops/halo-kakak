@@ -78,3 +78,7 @@ Does **not** touch `task_templates` / `task_occurrences` / auth / RLS on older t
 - `npm run test:presets` — mapRecurrence, sensitive detector, filter
 - `npm run test:rls` — REST smoke when tokens set
 - `supabase/tests/rls_checks.sql` — checklist 13–19
+
+## Phase 1 batch creation
+See [PHASE1_BATCH.md](./PHASE1_BATCH.md).
+

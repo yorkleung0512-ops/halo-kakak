@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Modal from '../Modal'
 import MethodStep from './MethodStep'
 import PresetBrowser from './PresetBrowser'
 import ConfigureStep from './ConfigureStep'
 import PreviewStep from './PreviewStep'
 import {
-  createFromPreset,
+  createTasksFromPresets,
   fetchCategories,
   fetchFavourites,
   fetchPresets,
   fetchRecentUsage,
+  mapBatchError,
   mapRecurrence,
   saveAsHouseholdPreset,
   toggleFavourite,
@@ -17,11 +18,14 @@ import {
 import { todayHK, POLICY_VERSION } from '../../lib/constants'
 import { translateViaEdge } from '../../lib/translateClient'
 import { supabase } from '../../lib/supabase'
+import { fetchActiveHelpers } from '../../lib/assignees'
 
-function buildDraft(preset) {
+function buildDraft(preset, helpers) {
   const mapped = mapRecurrence(preset.suggested_recurrence)
   const suggestedType = preset.suggested_task_type || 'scheduled'
   const time = (preset.suggested_time || '').toString().slice(0, 5) || '09:00'
+  const defaultAssignee =
+    helpers.length === 1 ? helpers[0].user_id : null
   return {
     preset,
     mode: suggestedType === 'adhoc' ? 'adhoc' : 'scheduled',
@@ -35,15 +39,17 @@ function buildDraft(preset) {
     title_id: preset.title_id,
     instructions_zh: preset.instructions_zh || '',
     instructions_id: preset.instructions_id || '',
+    additional_instructions_zh: '',
+    additional_instructions_id: '',
+    assigned_to: defaultAssignee,
     translation_approved: preset.translation_approved !== false,
     zhEdited: false,
-    notes: '',
   }
 }
 
 /**
  * Multi-step add-task flow for employers.
- * customForm: render prop / element for the existing custom task form fields.
+ * Batch create is atomic via create_tasks_from_presets RPC.
  */
 export default function AddTaskFlow({
   open,
@@ -51,19 +57,21 @@ export default function AddTaskFlow({
   householdId,
   userId,
   glossary,
-  ensureToday,
+  ensureToday: _ensureToday,
   onCreated,
   onToast,
   customForm,
 }) {
-  const [step, setStep] = useState('method') // method | browse | configure | preview | custom
+  const [step, setStep] = useState('method')
   const [categories, setCategories] = useState([])
   const [presets, setPresets] = useState([])
   const [favourites, setFavourites] = useState([])
   const [recent, setRecent] = useState([])
+  const [helpers, setHelpers] = useState([])
   const [selectedIds, setSelectedIds] = useState(() => new Set())
   const [drafts, setDrafts] = useState([])
   const [submitting, setSubmitting] = useState(false)
+  const idempotencyKeyRef = useRef(null)
 
   const favouriteIds = useMemo(
     () => new Set(favourites.map((f) => f.id)),
@@ -72,16 +80,18 @@ export default function AddTaskFlow({
 
   const load = useCallback(async () => {
     if (!householdId) return
-    const [cats, all, favs, rec] = await Promise.all([
+    const [cats, all, favs, rec, helps] = await Promise.all([
       fetchCategories(),
       fetchPresets(householdId),
       fetchFavourites(householdId),
       fetchRecentUsage(householdId, 10),
+      fetchActiveHelpers(householdId),
     ])
     setCategories(cats)
     setPresets(all)
     setFavourites(favs)
     setRecent(rec)
+    setHelpers(helps)
   }, [householdId])
 
   useEffect(() => {
@@ -89,6 +99,8 @@ export default function AddTaskFlow({
       setStep('method')
       setSelectedIds(new Set())
       setDrafts([])
+      idempotencyKeyRef.current = null
+      setSubmitting(false)
       load()
     }
   }, [open, load])
@@ -119,12 +131,16 @@ export default function AddTaskFlow({
 
   function goConfigure() {
     const selected = presets.filter((p) => selectedIds.has(p.id))
-    // also allow from favourites/recent that might be same list
     const extra = [...favourites, ...recent].filter(
       (p) => selectedIds.has(p.id) && !selected.find((s) => s.id === p.id),
     )
-    setDrafts([...selected, ...extra].map(buildDraft))
+    setDrafts([...selected, ...extra].map((p) => buildDraft(p, helpers)))
     setStep('configure')
+  }
+
+  function goPreview() {
+    idempotencyKeyRef.current = crypto.randomUUID()
+    setStep('preview')
   }
 
   function changeDraft(idx, patch) {
@@ -188,24 +204,18 @@ export default function AddTaskFlow({
   }
 
   async function submitAll() {
+    if (submitting) return
+    const key = idempotencyKeyRef.current || crypto.randomUUID()
+    idempotencyKeyRef.current = key
     setSubmitting(true)
-    let failed = null
-    for (const d of drafts) {
-      const { error } = await createFromPreset({
-        householdId,
-        userId,
-        preset: d.preset,
-        draft: d,
-        ensureToday,
-      })
-      if (error) {
-        failed = error
-        break
-      }
-    }
+    const { error } = await createTasksFromPresets({
+      householdId,
+      idempotencyKey: key,
+      items: drafts.map((d) => ({ preset: d.preset, draft: d })),
+    })
     setSubmitting(false)
-    if (failed) {
-      onToast?.(failed.message)
+    if (error) {
+      onToast?.(mapBatchError(error))
       return
     }
     onToast?.(
@@ -227,7 +237,12 @@ export default function AddTaskFlow({
             : '自訂任務'
 
   return (
-    <Modal open={open} onClose={onClose} title={title} labelledBy="add-task-flow-title">
+    <Modal
+      open={open}
+      onClose={submitting ? () => {} : onClose}
+      title={title}
+      labelledBy="add-task-flow-title"
+    >
       {step === 'method' && (
         <MethodStep
           onChooseTemplate={() => setStep('browse')}
@@ -250,14 +265,16 @@ export default function AddTaskFlow({
       {step === 'configure' && (
         <ConfigureStep
           drafts={drafts}
+          helpers={helpers}
           onChangeDraft={changeDraft}
           onBack={() => setStep('browse')}
-          onContinue={() => setStep('preview')}
+          onContinue={goPreview}
         />
       )}
       {step === 'preview' && (
         <PreviewStep
           drafts={drafts}
+          helpers={helpers}
           onChangeDraft={changeDraft}
           onBack={() => setStep('configure')}
           onSubmit={submitAll}

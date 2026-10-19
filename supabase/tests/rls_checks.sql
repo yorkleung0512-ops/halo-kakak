@@ -30,3 +30,15 @@
 -- 18. Favourites: employer insert/delete; helper select only
 -- 19. Usage: employer insert; members select; no cross-household
 -- See scripts/rls-smoke.mjs for REST checks when tokens available.
+
+-- ---------------------------------------------------------------------------
+-- Phase 1 batch creation (20–26)
+-- ---------------------------------------------------------------------------
+-- 20. create_tasks_from_presets requires employer/owner (NOT_AUTHORIZED otherwise)
+-- 21. Atomicity: invalid second item → zero new occurrences/templates/usage
+-- 22. Idempotency: same key+hash returns replayed; no duplicate rows
+-- 23. Same key different hash → DUPLICATE_REQUEST
+-- 24. INVALID_ASSIGNEE for non-active-helper / cross-household
+-- 25. BATCH_LIMIT_EXCEEDED for >20 items
+-- 26. task_creation_batches: anon denied; members select own HH only; no delete policy
+-- See docs/PHASE1_BATCH.md and scripts/phase1-sql-smoke notes (run via Supabase SQL with JWT claims).

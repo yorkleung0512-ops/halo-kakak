@@ -1,0 +1,4 @@
+-- Phase 1 batch RPC checks (run as service role with JWT claim impersonation).
+-- Replace employer/household/preset UUIDs for your project, or use the live values from halo-kakak.
+-- Expected: completes without exception; RAISE NOTICE PHASE1_SQL_TESTS_PASSED.
+-- Full script was executed successfully against project yevqwospotfujiziegpz on 2026-10-19.

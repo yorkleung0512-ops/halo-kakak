@@ -1,6 +1,13 @@
 import { todayHK } from '../../lib/constants'
+import AssigneePicker from './AssigneePicker'
 
-export default function ConfigureStep({ drafts, onChangeDraft, onBack, onContinue }) {
+export default function ConfigureStep({
+  drafts,
+  onChangeDraft,
+  onBack,
+  onContinue,
+  helpers = [],
+}) {
   return (
     <div className="space-y-4">
       <p lang="zh-Hant" className="text-sm text-slate-600">
@@ -41,7 +48,8 @@ export default function ConfigureStep({ drafts, onChangeDraft, onBack, onContinu
               onClick={() =>
                 onChangeDraft(idx, {
                   mode: 'scheduled',
-                  recurrence_rule: d.recurrence_rule === 'none' ? 'daily' : d.recurrence_rule,
+                  recurrence_rule:
+                    d.recurrence_rule === 'none' ? 'daily' : d.recurrence_rule,
                 })
               }
               className={`min-h-11 rounded-xl border text-sm font-semibold ${
@@ -119,15 +127,49 @@ export default function ConfigureStep({ drafts, onChangeDraft, onBack, onContinu
             </select>
           </div>
 
+          <AssigneePicker
+            id={`assignee-${idx}`}
+            helpers={helpers}
+            value={d.assigned_to || ''}
+            onChange={(v) => onChangeDraft(idx, { assigned_to: v })}
+          />
+
           <div>
-            <label className="text-xs" htmlFor={`notes-${idx}`}>
-              備註（可選）
+            <label className="text-xs" htmlFor={`add-zh-${idx}`} lang="zh-Hant">
+              補充指示
             </label>
-            <input
-              id={`notes-${idx}`}
-              value={d.notes || ''}
-              onChange={(e) => onChangeDraft(idx, { notes: e.target.value })}
-              className="mt-1 w-full min-h-11 rounded-xl border border-slate-200 px-2"
+            <textarea
+              id={`add-zh-${idx}`}
+              lang="zh-Hant"
+              rows={2}
+              value={d.additional_instructions_zh || ''}
+              onChange={(e) =>
+                onChangeDraft(idx, {
+                  additional_instructions_zh: e.target.value,
+                })
+              }
+              placeholder="例如：今日要買菜心、唔好太鹹"
+              className="mt-1 w-full min-h-11 rounded-xl border border-slate-200 px-2 py-2 text-sm"
+            />
+            <label
+              className="mt-2 block text-xs"
+              htmlFor={`add-id-${idx}`}
+              lang="id"
+            >
+              Instruksi tambahan
+            </label>
+            <textarea
+              id={`add-id-${idx}`}
+              lang="id"
+              rows={2}
+              value={d.additional_instructions_id || ''}
+              onChange={(e) =>
+                onChangeDraft(idx, {
+                  additional_instructions_id: e.target.value,
+                })
+              }
+              placeholder="Contoh: Beli caisim hari ini"
+              className="mt-1 w-full min-h-11 rounded-xl border border-slate-200 px-2 py-2 text-sm"
             />
           </div>
         </fieldset>

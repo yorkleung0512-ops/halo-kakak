@@ -8,6 +8,8 @@ import {
   isHighRisk,
   todayHK,
 } from '../lib/constants'
+import { fetchActiveHelpers } from '../lib/assignees'
+import AssigneePicker from './presets/AssigneePicker'
 
 function dueToTime(dueAt) {
   if (!dueAt) return ''
@@ -44,6 +46,10 @@ export default function EditTaskModal({
   const [titleId, setTitleId] = useState('')
   const [instrZh, setInstrZh] = useState('')
   const [instrId, setInstrId] = useState('')
+  const [addZh, setAddZh] = useState('')
+  const [addId, setAddId] = useState('')
+  const [assignedTo, setAssignedTo] = useState(null)
+  const [helpers, setHelpers] = useState([])
   const [time, setTime] = useState('')
   const [priority, setPriority] = useState('normal')
   const [approved, setApproved] = useState(false)
@@ -60,6 +66,10 @@ export default function EditTaskModal({
     setTitleId(task.title_id || '')
     setInstrZh(task.instructions_zh || '')
     setInstrId(task.instructions_id || '')
+    setAddZh(task.additional_instructions_zh || '')
+    setAddId(task.additional_instructions_id || '')
+    setAssignedTo(task.assigned_to || null)
+    fetchActiveHelpers(task.household_id).then(setHelpers)
     setTime(dueToTime(task.due_at))
     setPriority(task.priority || 'normal')
     setApproved(!!task.translation_approved)
@@ -116,6 +126,9 @@ export default function EditTaskModal({
       title_id: titleId.trim(),
       instructions_zh: instrZh,
       instructions_id: instrId,
+      additional_instructions_zh: addZh,
+      additional_instructions_id: addId,
+      assigned_to: assignedTo,
       priority,
       due_at: dueAt,
       translation_approved: approved,
@@ -144,6 +157,9 @@ export default function EditTaskModal({
           title_id: titleId.trim(),
           instructions_zh: instrZh,
           instructions_id: instrId,
+          additional_instructions_zh: addZh,
+          additional_instructions_id: addId,
+          assigned_to: assignedTo,
           priority,
           default_time: time || null,
           recurrence_rule: recurrence,
@@ -244,6 +260,36 @@ export default function EditTaskModal({
             setApproved(false)
           }}
           className="w-full rounded-xl border border-slate-200 px-3 py-2"
+        />
+
+        <label className="block text-sm font-medium" htmlFor="edit-add-zh" lang="zh-Hant">
+          補充指示
+        </label>
+        <textarea
+          id="edit-add-zh"
+          lang="zh-Hant"
+          rows={2}
+          value={addZh}
+          onChange={(e) => setAddZh(e.target.value)}
+          className="w-full rounded-xl border border-slate-200 px-3 py-2"
+        />
+        <label className="block text-sm font-medium" htmlFor="edit-add-id" lang="id">
+          Instruksi tambahan
+        </label>
+        <textarea
+          id="edit-add-id"
+          lang="id"
+          rows={2}
+          value={addId}
+          onChange={(e) => setAddId(e.target.value)}
+          className="w-full rounded-xl border border-slate-200 px-3 py-2"
+        />
+
+        <AssigneePicker
+          id="edit-assignee"
+          helpers={helpers}
+          value={assignedTo || ''}
+          onChange={setAssignedTo}
         />
 
         <label className="flex min-h-11 items-center gap-2 text-sm">

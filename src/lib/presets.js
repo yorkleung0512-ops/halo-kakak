@@ -178,110 +178,112 @@ export async function toggleFavourite(householdId, presetId, userId, isFav) {
   return { error }
 }
 
-async function recordUsage({
-  householdId,
-  presetId,
-  userId,
-  occurrenceId,
-  templateId,
-}) {
-  if (!presetId || String(presetId).startsWith('fallback:')) return
-  await supabase.from('task_preset_usage').insert({
-    household_id: householdId,
-    preset_id: presetId,
-    used_by: userId,
-    created_task_occurrence_id: occurrenceId || null,
-    created_task_template_id: templateId || null,
-  })
+
+export { mapBatchError } from './batchErrors.js'
+
+function draftToPayload(draft, preset, index) {
+  const title_zh = (draft.title_zh ?? preset.title_zh).trim()
+  const title_id = (draft.title_id ?? preset.title_id).trim()
+  const mode =
+    draft.mode === 'scheduled' && draft.recurrence_rule !== 'none'
+      ? 'scheduled'
+      : draft.mode === 'adhoc' || draft.recurrence_rule === 'none'
+        ? 'adhoc'
+        : draft.mode || 'adhoc'
+  const mapped = mapRecurrence(
+    draft.suggested_recurrence || preset.suggested_recurrence,
+  )
+  const rule = draft.recurrence_rule || mapped.recurrence_rule || 'daily'
+  const weekdays = draft.recurrence_weekdays ?? mapped.recurrence_weekdays
+  const addZh =
+    draft.additional_instructions_zh ??
+    draft.notes ??
+    ''
+  const addId = draft.additional_instructions_id ?? ''
+
+  const payload = {
+    client_item_id: draft.client_item_id || String(index + 1),
+    preset_id: preset.id,
+    mode,
+    title_zh,
+    title_id,
+    instructions_zh: draft.instructions_zh ?? preset.instructions_zh ?? '',
+    instructions_id: draft.instructions_id ?? preset.instructions_id ?? '',
+    additional_instructions_zh: addZh,
+    additional_instructions_id: addId,
+    task_date: draft.date || todayHK(),
+    due_time: draft.time || null,
+    start_date: draft.start_date || draft.date || todayHK(),
+    end_date: draft.end_date || null,
+    priority: draft.priority || preset.suggested_priority || 'normal',
+    assigned_to: draft.assigned_to || null,
+    translation_approved:
+      draft.translation_approved ??
+      (draft.zhEdited ? false : preset.translation_approved !== false),
+  }
+  if (mode === 'scheduled') {
+    payload.recurrence_rule = rule === 'none' ? 'daily' : rule
+    if (weekdays?.length) payload.recurrence_weekdays = weekdays
+  }
+  return payload
 }
 
 /**
- * Create ad-hoc occurrence or scheduled task_template from a configured preset draft.
- * Does NOT call translate API — uses provided bilingual text.
+ * Atomic batch create via create_tasks_from_presets RPC.
+ * @param {{ householdId: string, idempotencyKey: string, items: Array<{preset: object, draft: object}> }}
+ */
+export async function createTasksFromPresets({
+  householdId,
+  idempotencyKey,
+  items,
+}) {
+  if (!householdId || !idempotencyKey) {
+    return { error: { message: 'BATCH_FAILED' } }
+  }
+  if (!items?.length) {
+    return { error: { message: 'BATCH_FAILED' } }
+  }
+  for (const it of items) {
+    if (!it.preset?.id || String(it.preset.id).startsWith('fallback:')) {
+      return { error: { message: 'INVALID_PRESET' } }
+    }
+  }
+  const p_tasks = items.map((it, i) => draftToPayload(it.draft, it.preset, i))
+  const { data, error } = await supabase.rpc('create_tasks_from_presets', {
+    p_household_id: householdId,
+    p_idempotency_key: idempotencyKey,
+    p_tasks,
+  })
+  if (error) return { error }
+  return { data }
+}
+
+/**
+ * @deprecated Prefer createTasksFromPresets. Kept for single-item callers; routes through RPC.
  */
 export async function createFromPreset({
   householdId,
-  userId,
+  userId: _userId,
   preset,
   draft,
-  ensureToday,
+  ensureToday: _ensureToday,
+  idempotencyKey,
 }) {
-  const title_zh = (draft.title_zh ?? preset.title_zh).trim()
-  const title_id = (draft.title_id ?? preset.title_id).trim()
-  const instructions_zh = draft.instructions_zh ?? preset.instructions_zh ?? ''
-  const instructions_id = draft.instructions_id ?? preset.instructions_id ?? ''
-  const priority = draft.priority || preset.suggested_priority || 'normal'
-  const translation_approved =
-    draft.translation_approved ??
-    (draft.zhEdited ? false : preset.translation_approved !== false)
-  const taskDate = draft.date || todayHK()
-  const time = draft.time || (preset.suggested_time || '').slice(0, 5) || null
-  const mode = draft.mode || preset.suggested_task_type || 'adhoc'
-
-  if (mode === 'adhoc' || draft.recurrence_rule === 'none') {
-    const dueAt = time ? `${taskDate}T${time}:00+08:00` : null
-    const { data, error } = await supabase
-      .from('task_occurrences')
-      .insert({
-        household_id: householdId,
-        task_date: taskDate,
-        due_at: dueAt,
-        title_zh,
-        title_id,
-        instructions_zh,
-        instructions_id,
-        priority,
-        status: 'pending',
-        created_by: userId,
-        translation_approved,
-        assigned_to: draft.assigned_to || null,
-      })
-      .select()
-      .single()
-    if (error) return { error }
-    await recordUsage({
-      householdId,
-      presetId: preset.id,
-      userId,
-      occurrenceId: data.id,
-    })
-    return { occurrence: data }
-  }
-
-  const { recurrence_rule, recurrence_weekdays } = mapRecurrence(
-    draft.suggested_recurrence || preset.suggested_recurrence,
-  )
-  const rule = draft.recurrence_rule || recurrence_rule
-  const weekdays = draft.recurrence_weekdays ?? recurrence_weekdays
-
-  const { data: tmpl, error } = await supabase
-    .from('task_templates')
-    .insert({
-      household_id: householdId,
-      title_zh,
-      title_id,
-      instructions_zh,
-      instructions_id,
-      default_time: time || null,
-      recurrence_rule: rule === 'none' ? 'daily' : rule,
-      recurrence_weekdays: weekdays,
-      priority,
-      created_by: userId,
-      translation_approved,
-      start_date: taskDate,
-      assigned_to: draft.assigned_to || null,
-    })
-    .select()
-    .single()
-  if (error) return { error }
-  if (ensureToday) await ensureToday()
-  await recordUsage({
+  const key = idempotencyKey || crypto.randomUUID()
+  const { data, error } = await createTasksFromPresets({
     householdId,
-    presetId: preset.id,
-    userId,
-    templateId: tmpl.id,
+    idempotencyKey: key,
+    items: [{ preset, draft }],
   })
-  return { template: tmpl }
+  if (error) return { error }
+  const created = data?.created?.[0]
+  return {
+    data,
+    occurrence: created?.occurrence_id
+      ? { id: created.occurrence_id }
+      : undefined,
+    template: created?.template_id ? { id: created.template_id } : undefined,
+  }
 }
 
 export async function saveAsHouseholdPreset({

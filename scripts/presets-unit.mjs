@@ -101,5 +101,11 @@ assert('quick add fav first', qa[0].id === 'f1')
 assert('quick add cap 20', buildQuickAddList({ all: Array.from({length:40},(_,i)=>({id:`x${i}`,source:'system',category_key:'pets',sort_order:i})) }, { limit: 16, max: 20 }).length <= 20)
 
 
+
+import { mapBatchError } from '../src/lib/batchErrors.js'
+assert('mapBatchError INVALID_ASSIGNEE', mapBatchError({ message: 'INVALID_ASSIGNEE' }).includes('指派'))
+assert('mapBatchError BATCH_LIMIT', mapBatchError({ message: 'BATCH_LIMIT_EXCEEDED' }).includes('20'))
+assert('mapBatchError fallback', mapBatchError({ message: 'weird' }) === 'weird')
+
 console.log(failed ? `\n${failed} failed` : '\nAll passed')
 process.exit(failed ? 1 : 0)

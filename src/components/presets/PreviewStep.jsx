@@ -9,7 +9,13 @@ export default function PreviewStep({
   onSaveAsTemplate,
   onRetranslate,
   submitting,
+  helpers = [],
 }) {
+  function helperName(id) {
+    if (!id) return '暫不指派'
+    return helpers.find((h) => h.user_id === id)?.display_name || '姐姐'
+  }
+
   return (
     <div className="space-y-4">
       <p lang="zh-Hant" className="text-sm text-slate-600">
@@ -27,6 +33,7 @@ export default function PreviewStep({
             <p className="text-xs font-semibold text-slate-500">
               {d.mode === 'adhoc' ? '臨時任務 · Tugas sekali' : '排程任務'}
               {d.time ? ` · ${d.time}` : ''}
+              {` · 指派：${helperName(d.assigned_to)}`}
             </p>
             <label className="block text-xs" htmlFor={`zh-${idx}`}>
               中文
@@ -61,6 +68,41 @@ export default function PreviewStep({
               }
               className="w-full rounded-xl border border-slate-200 px-3 py-2"
             />
+
+            {(d.instructions_zh || d.instructions_id) && (
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm">
+                <p className="text-xs font-semibold text-slate-500">詳細指示</p>
+                {d.instructions_zh && (
+                  <p lang="zh-Hant" className="text-slate-700">
+                    {d.instructions_zh}
+                  </p>
+                )}
+                {d.instructions_id && (
+                  <p lang="id" className="mt-1 text-slate-600">
+                    {d.instructions_id}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {(d.additional_instructions_zh || d.additional_instructions_id) && (
+              <div className="rounded-xl bg-teal-50 px-3 py-2 text-sm">
+                <p lang="zh-Hant" className="text-xs font-semibold text-teal-900">
+                  補充指示
+                </p>
+                {d.additional_instructions_zh && (
+                  <p lang="zh-Hant" className="text-teal-950">
+                    {d.additional_instructions_zh}
+                  </p>
+                )}
+                {d.additional_instructions_id && (
+                  <p lang="id" className="mt-1 text-teal-900">
+                    {d.additional_instructions_id}
+                  </p>
+                )}
+              </div>
+            )}
+
             {d.zhEdited && (
               <button
                 type="button"
@@ -83,7 +125,10 @@ export default function PreviewStep({
               我已核對印尼文
             </label>
             {risk && (
-              <div role="alert" className="rounded-xl bg-amber-50 p-2 text-xs text-amber-950">
+              <div
+                role="alert"
+                className="rounded-xl bg-amber-50 p-2 text-xs text-amber-950"
+              >
                 <p lang="zh-Hant">{HIGH_RISK_WARNING.zh}</p>
                 <p lang="id">{HIGH_RISK_WARNING.id}</p>
               </div>
@@ -103,7 +148,8 @@ export default function PreviewStep({
         <button
           type="button"
           onClick={onBack}
-          className="min-h-11 flex-1 rounded-xl border border-slate-200"
+          disabled={submitting}
+          className="min-h-11 flex-1 rounded-xl border border-slate-200 disabled:opacity-50"
         >
           返回
         </button>
@@ -111,13 +157,16 @@ export default function PreviewStep({
           type="button"
           disabled={submitting}
           onClick={onSubmit}
+          aria-busy={submitting}
           className="min-h-11 flex-1 rounded-xl bg-teal-700 font-bold text-white disabled:opacity-50"
         >
-          {drafts.length > 1
-            ? `建立 ${drafts.length} 項任務`
-            : drafts[0]?.mode === 'scheduled'
-              ? '建立排程'
-              : '加入任務'}
+          {submitting
+            ? '正在建立任務…'
+            : drafts.length > 1
+              ? `建立 ${drafts.length} 項任務`
+              : drafts[0]?.mode === 'scheduled'
+                ? '建立排程'
+                : '加入任務'}
         </button>
       </div>
     </div>

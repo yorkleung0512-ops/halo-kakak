@@ -1,49 +1,78 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Modal from '../Modal'
-import { createFromPreset, mapRecurrence } from '../../lib/presets'
+import AssigneePicker from './AssigneePicker'
+import {
+  createTasksFromPresets,
+  mapBatchError,
+  mapRecurrence,
+} from '../../lib/presets'
 import { todayHK } from '../../lib/constants'
+import { fetchActiveHelpers } from '../../lib/assignees'
 
 export default function QuickAddConfirm({
   open,
   preset,
   householdId,
-  userId,
-  ensureToday,
+  userId: _userId,
+  ensureToday: _ensureToday,
   onClose,
   onCreated,
   onToast,
 }) {
   const [mode, setMode] = useState('adhoc')
   const [busy, setBusy] = useState(false)
+  const [helpers, setHelpers] = useState([])
+  const [assignedTo, setAssignedTo] = useState(null)
+  const idempotencyKeyRef = useRef(null)
+
+  useEffect(() => {
+    if (!open || !householdId) return
+    idempotencyKeyRef.current = crypto.randomUUID()
+    setMode('adhoc')
+    setBusy(false)
+    fetchActiveHelpers(householdId).then((list) => {
+      setHelpers(list)
+      setAssignedTo(list.length === 1 ? list[0].user_id : null)
+    })
+  }, [open, householdId, preset?.id])
 
   if (!preset) return null
 
   async function confirm() {
+    if (busy) return
     setBusy(true)
     const mapped = mapRecurrence(preset.suggested_recurrence)
     const time = (preset.suggested_time || '').toString().slice(0, 5) || '09:00'
-    const { error } = await createFromPreset({
+    const key = idempotencyKeyRef.current || crypto.randomUUID()
+    const { error } = await createTasksFromPresets({
       householdId,
-      userId,
-      preset,
-      ensureToday,
-      draft: {
-        mode,
-        date: todayHK(),
-        time,
-        recurrence_rule: mode === 'adhoc' ? 'none' : mapped.recurrence_rule || 'daily',
-        recurrence_weekdays: mapped.recurrence_weekdays,
-        priority: preset.suggested_priority || 'normal',
-        title_zh: preset.title_zh,
-        title_id: preset.title_id,
-        instructions_zh: preset.instructions_zh,
-        instructions_id: preset.instructions_id,
-        translation_approved: preset.translation_approved !== false,
-      },
+      idempotencyKey: key,
+      items: [
+        {
+          preset,
+          draft: {
+            mode,
+            date: todayHK(),
+            time,
+            recurrence_rule:
+              mode === 'adhoc' ? 'none' : mapped.recurrence_rule || 'daily',
+            recurrence_weekdays: mapped.recurrence_weekdays,
+            priority: preset.suggested_priority || 'normal',
+            title_zh: preset.title_zh,
+            title_id: preset.title_id,
+            instructions_zh: preset.instructions_zh,
+            instructions_id: preset.instructions_id,
+            additional_instructions_zh: '',
+            additional_instructions_id: '',
+            assigned_to: assignedTo,
+            translation_approved: preset.translation_approved !== false,
+          },
+        },
+      ],
     })
     setBusy(false)
     if (error) {
-      onToast?.(error.message)
+      onToast?.(mapBatchError(error))
       return
     }
     onToast?.('已新增')
@@ -54,7 +83,7 @@ export default function QuickAddConfirm({
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={busy ? () => {} : onClose}
       title="快速新增"
       labelledBy="quick-add-title"
     >
@@ -80,17 +109,29 @@ export default function QuickAddConfirm({
           aria-pressed={mode === 'scheduled'}
           onClick={() => setMode('scheduled')}
           className={`min-h-11 rounded-xl border text-sm font-semibold ${
-            mode === 'scheduled' ? 'border-teal-600 bg-teal-50' : 'border-slate-200'
+            mode === 'scheduled'
+              ? 'border-teal-600 bg-teal-50'
+              : 'border-slate-200'
           }`}
         >
           設為固定工作
         </button>
       </div>
+      <div className="mb-3">
+        <AssigneePicker
+          id="quick-assignee"
+          helpers={helpers}
+          value={assignedTo || ''}
+          onChange={setAssignedTo}
+          disabled={busy}
+        />
+      </div>
       <div className="flex gap-2">
         <button
           type="button"
           onClick={onClose}
-          className="min-h-11 flex-1 rounded-xl border border-slate-200"
+          disabled={busy}
+          className="min-h-11 flex-1 rounded-xl border border-slate-200 disabled:opacity-50"
         >
           取消
         </button>
@@ -98,9 +139,10 @@ export default function QuickAddConfirm({
           type="button"
           disabled={busy}
           onClick={confirm}
-          className="min-h-11 flex-1 rounded-xl bg-teal-700 font-bold text-white"
+          aria-busy={busy}
+          className="min-h-11 flex-1 rounded-xl bg-teal-700 font-bold text-white disabled:opacity-50"
         >
-          確認
+          {busy ? '正在建立任務…' : '確認'}
         </button>
       </div>
     </Modal>

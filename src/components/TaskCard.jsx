@@ -74,6 +74,24 @@ export default function TaskCard({
         </div>
       )}
 
+      {(task.additional_instructions_zh || task.additional_instructions_id) && (
+        <div className="mb-3 rounded-xl bg-teal-50 px-3 py-2 text-sm">
+          <p lang="zh-Hant" className="text-xs font-semibold text-teal-900">
+            補充指示
+          </p>
+          {task.additional_instructions_zh && (
+            <p lang="zh-Hant" className="text-teal-950">
+              {task.additional_instructions_zh}
+            </p>
+          )}
+          {task.additional_instructions_id && (
+            <p lang="id" className="mt-1 text-teal-900">
+              {task.additional_instructions_id}
+            </p>
+          )}
+        </div>
+      )}
+
       {risk && (
         <div
           role="alert"
