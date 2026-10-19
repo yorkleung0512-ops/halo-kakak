@@ -27,5 +27,13 @@ assert.equal(
   deepLinkForNotification({ id: 'x', task_template_id: 'tpl-1' }),
   '/calendar?template=tpl-1&n=x',
 )
+assert.equal(
+  deepLinkForNotification({
+    id: 'nid',
+    task_occurrence_id: 'occ-1',
+    metadata: { comment_id: 'cmt-1' },
+  }),
+  '/?task=occ-1&n=nid&comment=cmt-1',
+)
 
 console.log('All notification unit tests passed')

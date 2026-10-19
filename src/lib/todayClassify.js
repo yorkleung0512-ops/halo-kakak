@@ -313,8 +313,9 @@ export function unreadAssignedTaskIds(notifications) {
 }
 
 /**
- * From batched comments, find task ids where latest comment is from someone
- * other than currentUserId (needs a response from current user).
+ * LEGACY / tests only: inferred unread from "latest comment not mine".
+ * Production Today uses get_my_unread_comment_summary → unreadCommentTaskIdsFromSummary.
+ * Do not use this for UI "需要處理" counts.
  */
 export function deriveUnreadCommentTaskIds(comments, currentUserId) {
   const set = new Set()

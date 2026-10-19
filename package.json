@@ -11,7 +11,8 @@
     "test:presets": "node scripts/presets-unit.mjs",
     "test:rls": "node scripts/rls-smoke.mjs",
     "test:notifications": "node scripts/notifications-unit.mjs",
-    "test:today": "node scripts/today-unit.mjs"
+    "test:today": "node scripts/today-unit.mjs",
+    "test:comment-reads": "node scripts/comment-reads-unit.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

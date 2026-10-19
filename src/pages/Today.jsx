@@ -25,9 +25,13 @@ import {
   summarizeCounts,
   pickNextTask,
   unreadAssignedTaskIds,
-  deriveUnreadCommentTaskIds,
   aggregateCommentCounts,
 } from '../lib/todayClassify'
+import {
+  fetchUnreadCommentSummary,
+  unreadCommentTaskIdsFromSummary,
+  markTaskCommentsRead,
+} from '../lib/commentReads'
 import Modal from '../components/Modal'
 import Toast from '../components/Toast'
 import AddTaskFlow from '../components/presets/AddTaskFlow'
@@ -90,6 +94,7 @@ export default function Today() {
   const [detailTask, setDetailTask] = useState(null)
   const [searchParams] = useSearchParams()
   const deepTaskId = searchParams.get('task')
+  const deepCommentId = searchParams.get('comment')
   const channelRef = useRef(null)
   const tasksRef = useRef(tasks)
   const [nowTick, setNowTick] = useState(() => Date.now())
@@ -132,6 +137,16 @@ export default function Today() {
     setTimeout(() => setToast(''), 3200)
   }, [])
 
+  const refreshUnreadComments = useCallback(async (hhId) => {
+    if (!hhId) {
+      setUnreadCommentTaskIds(new Set())
+      return
+    }
+    const { rows, error } = await fetchUnreadCommentSummary(hhId, todayHK())
+    if (error) return
+    setUnreadCommentTaskIds(unreadCommentTaskIdsFromSummary(rows))
+  }, [])
+
   const mergeTemplatesAndComments = useCallback(async (rows, hhId) => {
     const list = rows || []
     const templateIds = [
@@ -148,39 +163,44 @@ export default function Today() {
       ),
     ]
 
-    const [tplRes, commentRes, profileRes, helperRes] = await Promise.all([
-      templateIds.length
-        ? supabase
-            .from('task_templates')
-            .select(
-              'id, recurrence_rule, recurrence_weekdays, recurrence_interval, default_time, start_date, end_date, paused_at, is_active, title_zh, title_id',
-            )
-            .in('id', templateIds)
-        : Promise.resolve({ data: [] }),
-      occurrenceIds.length
-        ? supabase
-            .from('task_comments')
-            .select('task_occurrence_id, message, created_at, user_id')
-            .in('task_occurrence_id', occurrenceIds)
-        : Promise.resolve({ data: [] }),
-      assigneeIds.length
-        ? supabase
-            .from('profiles')
-            .select('id, display_name')
-            .in('id', assigneeIds)
-        : Promise.resolve({ data: [] }),
-      hhId ? fetchActiveHelpers(hhId) : Promise.resolve([]),
-    ])
+    const [tplRes, commentRes, profileRes, helperRes, unreadRes] =
+      await Promise.all([
+        templateIds.length
+          ? supabase
+              .from('task_templates')
+              .select(
+                'id, recurrence_rule, recurrence_weekdays, recurrence_interval, default_time, start_date, end_date, paused_at, is_active, title_zh, title_id',
+              )
+              .in('id', templateIds)
+          : Promise.resolve({ data: [] }),
+        occurrenceIds.length
+          ? supabase
+              .from('task_comments')
+              .select('task_occurrence_id')
+              .in('task_occurrence_id', occurrenceIds)
+          : Promise.resolve({ data: [] }),
+        assigneeIds.length
+          ? supabase
+              .from('profiles')
+              .select('id, display_name')
+              .in('id', assigneeIds)
+          : Promise.resolve({ data: [] }),
+        hhId ? fetchActiveHelpers(hhId) : Promise.resolve([]),
+        hhId
+          ? fetchUnreadCommentSummary(hhId, todayHK())
+          : Promise.resolve({ rows: [], error: null }),
+      ])
 
     const tplMap = {}
     for (const t of tplRes.data || []) tplMap[t.id] = t
     setTemplatesById(tplMap)
 
-    const comments = commentRes.data || []
-    setCommentCounts(aggregateCommentCounts(comments))
-    setUnreadCommentTaskIds(
-      deriveUnreadCommentTaskIds(comments, user?.id),
-    )
+    setCommentCounts(aggregateCommentCounts(commentRes.data || []))
+    if (!unreadRes.error) {
+      setUnreadCommentTaskIds(
+        unreadCommentTaskIdsFromSummary(unreadRes.rows),
+      )
+    }
 
     const names = {}
     for (const p of profileRes.data || []) {
@@ -192,7 +212,7 @@ export default function Today() {
       }
     }
     setAssigneeNames(names)
-  }, [user?.id])
+  }, [])
 
   const loadTasks = useCallback(async () => {
     if (!household?.id) return
@@ -247,6 +267,8 @@ export default function Today() {
     if (!deepTaskId || loading) return
     const el = document.getElementById(`task-${deepTaskId}`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const found = tasks.find((t) => t.id === deepTaskId)
+    if (found) setDetailTask(found)
   }, [deepTaskId, loading, tasks])
 
   // Offline flush + visibility refetch
@@ -269,17 +291,25 @@ export default function Today() {
               message: m.payload.comment,
             })
           }
+        } else if (m.type === 'mark_comments_read') {
+          const { error } = await markTaskCommentsRead(
+            m.payload.task_occurrence_id,
+            m.payload.comment_ids,
+          )
+          if (error) throw error
         }
       }, queueScope)
       refreshPending()
       if (result.flushed) {
         showToast(effectiveIsHelper ? 'Tersinkron' : '已同步')
         loadTasks()
+        if (household?.id) refreshUnreadComments(household.id)
       }
     }
     function onVis() {
       if (document.visibilityState === 'visible' && navigator.onLine) {
         loadTasks()
+        if (household?.id) refreshUnreadComments(household.id)
       }
     }
     window.addEventListener('online', onOnline)
@@ -295,6 +325,8 @@ export default function Today() {
     loadTasks,
     queueScope,
     refreshPending,
+    household?.id,
+    refreshUnreadComments,
   ])
 
   // Realtime: task_occurrences (+ comments) for this household
@@ -363,19 +395,36 @@ export default function Today() {
             filter: `household_id=eq.${household.id}`,
           },
           () => {
-            // Soft refresh comment aggregates without full page reload
             const ids = tasksRef.current.map((t) => t.id)
-            if (!ids.length) return
-            supabase
-              .from('task_comments')
-              .select('task_occurrence_id, message, created_at, user_id')
-              .in('task_occurrence_id', ids)
-              .then(({ data }) => {
-                setCommentCounts(aggregateCommentCounts(data || []))
-                setUnreadCommentTaskIds(
-                  deriveUnreadCommentTaskIds(data || [], user?.id),
-                )
-              })
+            if (ids.length) {
+              supabase
+                .from('task_comments')
+                .select('task_occurrence_id')
+                .in('task_occurrence_id', ids)
+                .then(({ data }) => {
+                  setCommentCounts(aggregateCommentCounts(data || []))
+                })
+            }
+            // Real unread state from receipts — not inference
+            refreshUnreadComments(household.id)
+          },
+        )
+        .on(
+          'postgres_changes',
+          user?.id
+            ? {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'task_comment_reads',
+                filter: `user_id=eq.${user.id}`,
+              }
+            : {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'task_comment_reads',
+              },
+          () => {
+            refreshUnreadComments(household.id)
           },
         )
         .subscribe()
@@ -390,7 +439,7 @@ export default function Today() {
         channelRef.current = null
       }
     }
-  }, [household?.id, user?.id])
+  }, [household?.id, user?.id, refreshUnreadComments])
 
   // When templates missing for newly inserted realtime rows, fetch them
   useEffect(() => {
@@ -1092,6 +1141,17 @@ export default function Today() {
             ? assigneeNames[detailTask.created_by]
             : undefined
         }
+        currentUserId={user?.id}
+        focusCommentId={
+          detailTask && deepCommentId && detailTask.id === deepTaskId
+            ? deepCommentId
+            : null
+        }
+        householdId={household?.id}
+        queueScope={queueScope}
+        onCommentsRead={() => {
+          if (household?.id) refreshUnreadComments(household.id)
+        }}
       />
 
       <Toast message={toast} offline={toastOffline} />

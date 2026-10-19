@@ -22,7 +22,15 @@ export function notificationCopy(n, isHelper) {
 export function deepLinkForNotification(n) {
   if (!n) return '/'
   if (n.task_occurrence_id) {
-    return `/?task=${encodeURIComponent(n.task_occurrence_id)}&n=${encodeURIComponent(n.id)}`
+    let url = `/?task=${encodeURIComponent(n.task_occurrence_id)}&n=${encodeURIComponent(n.id)}`
+    const commentId =
+      n.metadata?.comment_id ||
+      n.metadata?.commentId ||
+      null
+    if (commentId) {
+      url += `&comment=${encodeURIComponent(commentId)}`
+    }
+    return url
   }
   if (n.task_template_id) {
     return `/calendar?template=${encodeURIComponent(n.task_template_id)}&n=${encodeURIComponent(n.id)}`
