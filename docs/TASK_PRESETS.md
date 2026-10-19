@@ -82,3 +82,4 @@ Does **not** touch `task_templates` / `task_occurrences` / auth / RLS on older t
 ## Phase 1 batch creation
 See [PHASE1_BATCH.md](./PHASE1_BATCH.md).
 
+See also: `PHASE1_BATCH.md`, `PHASE2_SCHEDULING.md`, `PHASE3_TEMPLATES.md`.

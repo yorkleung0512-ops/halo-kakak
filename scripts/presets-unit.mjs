@@ -11,8 +11,12 @@ import {
   EDIT_SCOPES,
   ISO_WEEKDAYS,
   WEEKDAY_LABELS,
+  CLIENT_SEED_VERSION,
+  OFFLINE_PRESET_MSG,
+  UNAVAILABLE_PRESET_MSG,
 } from '../src/lib/presetUtils.js'
 import { mapBatchError } from '../src/lib/batchErrors.js'
+
 
 let failed = 0
 function assert(name, cond, detail = '') {
@@ -161,6 +165,14 @@ assert('mapBatchError BATCH_LIMIT', mapBatchError({ message: 'BATCH_LIMIT_EXCEED
 assert('mapBatchError INVALID_SCOPE', mapBatchError({ message: 'INVALID_SCOPE' }).includes('範圍'))
 assert('mapBatchError INVALID_RECURRENCE', mapBatchError({ message: 'INVALID_RECURRENCE' }).includes('重複'))
 assert('mapBatchError fallback', mapBatchError({ message: 'weird' }) === 'weird')
+
+assert('seed version set', !!CLIENT_SEED_VERSION && CLIENT_SEED_VERSION.includes('2026'))
+assert('offline msg bilingual', OFFLINE_PRESET_MSG.zh.includes('離線') && OFFLINE_PRESET_MSG.id.length > 5)
+assert('unavail msg bilingual', UNAVAILABLE_PRESET_MSG.zh.includes('無法') && UNAVAILABLE_PRESET_MSG.id.length > 5)
+assert(
+  'sensitive before save kinds',
+  detectSensitiveContent('請打 91234567 同銀行戶口 12345678').kinds.length >= 1,
+)
 
 console.log(failed ? `\n${failed} failed` : '\nAll passed')
 process.exit(failed ? 1 : 0)

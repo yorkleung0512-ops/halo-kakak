@@ -7,7 +7,8 @@ import HouseholdPresetsManager from '../components/presets/HouseholdPresetsManag
 
 export default function Settings() {
   const { user, profile, signOut, updateProfile } = useAuth()
-  const { household, role, effectiveIsHelper, memberships } = useHousehold()
+  const { household, role, effectiveIsHelper, memberships, glossary, ensureToday } =
+    useHousehold()
   const [name, setName] = useState(profile?.display_name || '')
   const [msg, setMsg] = useState('')
 
@@ -160,6 +161,8 @@ export default function Settings() {
           householdId={household.id}
           userId={user.id}
           onToast={setMsg}
+          glossary={glossary}
+          ensureToday={ensureToday}
         />
       )}
 

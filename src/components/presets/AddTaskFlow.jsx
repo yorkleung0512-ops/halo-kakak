@@ -6,12 +6,12 @@ import ConfigureStep from './ConfigureStep'
 import PreviewStep from './PreviewStep'
 import {
   createTasksFromPresets,
-  fetchCategories,
   fetchFavourites,
-  fetchPresets,
+  fetchPresetLibrary,
   fetchRecentUsage,
   mapBatchError,
   mapRecurrence,
+  refreshPresetLibraryOnReconnect,
   saveAsHouseholdPreset,
   toggleFavourite,
 } from '../../lib/presets'
@@ -44,8 +44,8 @@ function buildDraft(preset, helpers) {
     title_id: preset.title_id,
     instructions_zh: preset.instructions_zh || '',
     instructions_id: preset.instructions_id || '',
-    additional_instructions_zh: '',
-    additional_instructions_id: '',
+    additional_instructions_zh: preset.additional_instructions_zh || '',
+    additional_instructions_id: preset.additional_instructions_id || '',
     assigned_to: defaultAssignee,
     translation_approved: preset.translation_approved !== false,
     zhEdited: false,
@@ -66,6 +66,7 @@ export default function AddTaskFlow({
   onCreated,
   onToast,
   customForm,
+  initialPresetIds = [],
 }) {
   const [step, setStep] = useState('method')
   const [categories, setCategories] = useState([])
@@ -76,7 +77,9 @@ export default function AddTaskFlow({
   const [selectedIds, setSelectedIds] = useState(() => new Set())
   const [drafts, setDrafts] = useState([])
   const [submitting, setSubmitting] = useState(false)
+  const [libraryMeta, setLibraryMeta] = useState(null)
   const idempotencyKeyRef = useRef(null)
+  const stepHeadingRef = useRef(null)
 
   const favouriteIds = useMemo(
     () => new Set(favourites.map((f) => f.id)),
@@ -85,30 +88,97 @@ export default function AddTaskFlow({
 
   const load = useCallback(async () => {
     if (!householdId) return
-    const [cats, all, favs, rec, helps] = await Promise.all([
-      fetchCategories(),
-      fetchPresets(householdId),
-      fetchFavourites(householdId),
-      fetchRecentUsage(householdId, 10),
-      fetchActiveHelpers(householdId),
-    ])
-    setCategories(cats)
-    setPresets(all)
-    setFavourites(favs)
-    setRecent(rec)
-    setHelpers(helps)
-  }, [householdId])
+    try {
+      const [{ categories: cats, presets: all, meta, error }, favs, rec, helps] =
+        await Promise.all([
+          fetchPresetLibrary(householdId),
+          fetchFavourites(householdId),
+          fetchRecentUsage(householdId, 10),
+          fetchActiveHelpers(householdId),
+        ])
+      if (error && meta?.mode === 'error') {
+        onToast?.(error.message)
+      }
+      setCategories(cats || [])
+      setPresets(all || [])
+      setLibraryMeta(meta)
+      setFavourites(favs)
+      setRecent(rec)
+      setHelpers(helps)
+    } catch (e) {
+      onToast?.(e.message || '載入範本失敗')
+    }
+  }, [householdId, onToast])
 
   useEffect(() => {
     if (open) {
-      setStep('method')
-      setSelectedIds(new Set())
+      const initial = new Set(
+        (initialPresetIds || []).filter(Boolean),
+      )
+      setStep(initial.size ? 'browse' : 'method')
+      setSelectedIds(initial)
       setDrafts([])
       idempotencyKeyRef.current = null
       setSubmitting(false)
       load()
     }
-  }, [open, load])
+  }, [open, load, JSON.stringify(initialPresetIds || [])])
+
+  useEffect(() => {
+    if (!open) return
+    stepHeadingRef.current?.focus?.()
+  }, [step, open])
+
+  const autoConfiguredRef = useRef(false)
+  useEffect(() => {
+    if (!open) {
+      autoConfiguredRef.current = false
+      return
+    }
+    if (autoConfiguredRef.current) return
+    if (step !== 'browse') return
+    if (!(initialPresetIds || []).length) return
+    const pool = [...presets, ...favourites, ...recent]
+    if (!pool.length) return
+    const ready = (initialPresetIds || []).every((id) =>
+      pool.some((p) => p.id === id),
+    )
+    if (!ready) return
+    const dedup = []
+    const seen = new Set()
+    for (const p of pool) {
+      if (!selectedIds.has(p.id) || seen.has(p.id)) continue
+      seen.add(p.id)
+      dedup.push(p)
+    }
+    if (!dedup.length) return
+    autoConfiguredRef.current = true
+    setDrafts(dedup.map((p) => buildDraft(p, helpers)))
+    setStep('configure')
+  }, [open, step, presets, favourites, recent, helpers, selectedIds])
+
+  useEffect(() => {
+    if (!open || !householdId) return
+    function onOnline() {
+      refreshPresetLibraryOnReconnect(householdId).then((res) => {
+        if (!res) return
+        if (res.error && res.meta?.mode === 'error') {
+          onToast?.(res.error.message)
+          return
+        }
+        setCategories(res.categories || [])
+        setPresets(res.presets || [])
+        setLibraryMeta(res.meta)
+        onToast?.(
+          res.meta?.mode === 'online'
+            ? '已重新同步範本庫'
+            : undefined,
+        )
+      })
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [open, householdId, onToast])
 
   function toggleSelect(id) {
     setSelectedIds((prev) => {
@@ -194,9 +264,15 @@ export default function AddTaskFlow({
       title_id: d.title_id,
       instructions_zh: d.instructions_zh,
       instructions_id: d.instructions_id,
+      additional_instructions_zh: d.additional_instructions_zh || '',
+      additional_instructions_id: d.additional_instructions_id || '',
       suggested_task_type: d.mode === 'adhoc' ? 'adhoc' : 'scheduled',
       suggested_time: d.time || null,
-      suggested_recurrence: { rule: d.recurrence_rule || 'none' },
+      suggested_recurrence: {
+        rule: d.recurrence_rule || 'none',
+        weekdays: d.recurrence_weekdays,
+        interval: d.recurrence_interval || 1,
+      },
       suggested_priority: d.priority,
       safety_warning: !!d.preset.safety_warning,
       translation_approved: !!d.translation_approved,
@@ -265,6 +341,7 @@ export default function AddTaskFlow({
           onToggleSelect={toggleSelect}
           onToggleFavourite={onToggleFavourite}
           onContinue={goConfigure}
+          libraryMeta={libraryMeta}
         />
       )}
       {step === 'configure' && (

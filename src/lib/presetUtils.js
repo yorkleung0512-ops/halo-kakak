@@ -299,3 +299,16 @@ export const EDIT_SCOPES = [
     id: 'Seluruh jadwal',
   },
 ]
+
+
+export const OFFLINE_PRESET_MSG = {
+  zh: '離線：顯示已緩存嘅系統範本。家庭範本要連線先睇到。',
+  id: 'Luring: menampilkan templat sistem tersimpan. Templat rumah tangga perlu koneksi.',
+}
+
+export const UNAVAILABLE_PRESET_MSG = {
+  zh: '暫時無法載入範本庫，顯示本地備份。',
+  id: 'Tidak dapat memuat pustaka templat; menampilkan cadangan lokal.',
+}
+
+export const CLIENT_SEED_VERSION = '2026.10.19'

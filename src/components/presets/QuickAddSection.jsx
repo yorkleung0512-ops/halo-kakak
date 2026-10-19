@@ -48,24 +48,31 @@ export default function QuickAddSection({
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [favs, recent, all] = await Promise.all([
-        fetchFavourites(householdId),
-        fetchRecentUsage(householdId, 20),
-        fetchPresets(householdId),
-      ])
-      if (cancelled) return
-      const usageCounts = {}
-      for (const r of recent) {
-        usageCounts[r.id] = (usageCounts[r.id] || 0) + 1
+      try {
+        const [favs, recent, all] = await Promise.all([
+          fetchFavourites(householdId),
+          fetchRecentUsage(householdId, 20),
+          fetchPresets(householdId),
+        ])
+        if (cancelled) return
+        const usageCounts = {}
+        for (const r of recent) {
+          usageCounts[r.id] = (usageCounts[r.id] || 0) + 1
+        }
+        const ranked = buildQuickAddList(
+          { favourites: favs, recent, all, usageCounts },
+          { limit: QUICK_ADD_POOL, max: QUICK_ADD_POOL },
+        )
+        const visible = ranked
+          .filter((p) => !hidden.has(p.id))
+          .slice(0, QUICK_ADD_VISIBLE)
+        setItems(visible)
+      } catch (e) {
+        if (!cancelled) {
+          onToast?.(e.message || "載入快速新增失敗")
+          setItems([])
+        }
       }
-      const ranked = buildQuickAddList(
-        { favourites: favs, recent, all, usageCounts },
-        { limit: QUICK_ADD_POOL, max: QUICK_ADD_POOL },
-      )
-      const visible = ranked
-        .filter((p) => !hidden.has(p.id))
-        .slice(0, QUICK_ADD_VISIBLE)
-      setItems(visible)
     }
     if (householdId) load()
     return () => {

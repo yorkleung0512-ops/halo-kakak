@@ -2,6 +2,11 @@
  * Task preset library helpers.
  * task_presets = reusable bilingual library (system + household)
  * task_templates = active recurring schedules (unchanged)
+ *
+ * Offline/fallback (Phase 3):
+ * - Shared cache stores SYSTEM presets only (never household).
+ * - Fallback only when genuinely offline / network unavailable.
+ * - Auth / schema / permission errors are surfaced, never masked by fallback.
  */
 import { supabase } from './supabase'
 import { todayHK } from './constants'
@@ -9,7 +14,12 @@ import {
   FALLBACK_CATEGORIES,
   FALLBACK_SYSTEM_PRESETS,
 } from '../data/systemPresetsFallback'
-import { mapRecurrence } from './presetUtils'
+import {
+  mapRecurrence,
+  CLIENT_SEED_VERSION,
+  OFFLINE_PRESET_MSG,
+  UNAVAILABLE_PRESET_MSG,
+} from './presetUtils'
 
 export {
   mapRecurrence,
@@ -23,15 +33,59 @@ export {
   WEEKDAY_LABELS,
   RECURRENCE_RULES,
   EDIT_SCOPES,
+  CLIENT_SEED_VERSION,
+  OFFLINE_PRESET_MSG,
+  UNAVAILABLE_PRESET_MSG,
 } from './presetUtils'
 
-const SYSTEM_CACHE_KEY = 'halo-kakak:system-presets:v1'
+const SYSTEM_CACHE_KEY = 'halo-kakak:system-presets:v2'
 
-function cacheSystem(categories, presets) {
+function isOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
+/** Errors that must NOT be hidden behind fallback data */
+function isHardError(error) {
+  if (!error) return false
+  const code = String(error.code || '')
+  const msg = String(error.message || '').toLowerCase()
+  const status = error.status || error.statusCode
+  if (status === 401 || status === 403) return true
+  if (code === 'PGRST301' || code === '42501' || code === '28000') return true
+  if (msg.includes('jwt') || msg.includes('not authorized') || msg.includes('permission'))
+    return true
+  if (msg.includes('column') || msg.includes('schema') || code === '42703' || code === '42P01')
+    return true
+  return false
+}
+
+function isNetworkish(error) {
+  if (!error) return false
+  if (isHardError(error)) return false
+  const msg = String(error.message || '').toLowerCase()
+  return (
+    isOffline() ||
+    msg.includes('failed to fetch') ||
+    msg.includes('network') ||
+    msg.includes('fetch') ||
+    msg.includes('timeout') ||
+    error.name === 'TypeError'
+  )
+}
+
+function cacheSystem({ categories, presets, seedVersion, lastSyncedAt }) {
   try {
+    // Never persist household presets in shared cache
+    const safe = (presets || []).filter((p) => p.source === 'system')
     localStorage.setItem(
       SYSTEM_CACHE_KEY,
-      JSON.stringify({ at: Date.now(), categories, presets }),
+      JSON.stringify({
+        at: Date.now(),
+        seedVersion: seedVersion || CLIENT_SEED_VERSION,
+        lastSyncedAt: lastSyncedAt || new Date().toISOString(),
+        categories,
+        presets: safe,
+      }),
     )
   } catch {
     /* ignore quota */
@@ -42,27 +96,71 @@ function readSystemCache() {
   try {
     const raw = localStorage.getItem(SYSTEM_CACHE_KEY)
     if (!raw) return null
-    return JSON.parse(raw)
+    const parsed = JSON.parse(raw)
+    if (parsed?.presets?.some((p) => p.source === 'household')) {
+      // Purge contaminated cache
+      localStorage.removeItem(SYSTEM_CACHE_KEY)
+      return null
+    }
+    return parsed
   } catch {
     return null
   }
 }
 
-export async function fetchCategories() {
-  const { data, error } = await supabase
+function fallbackSystemPresets() {
+  return FALLBACK_SYSTEM_PRESETS.map((p) => ({
+    ...p,
+    id: `fallback:${p.system_key}`,
+    source: 'system',
+    category_key: p.category_key,
+    category: FALLBACK_CATEGORIES.find((c) => c.key === p.category_key),
+    template_version: 1,
+  }))
+}
+
+/**
+ * @returns {{ categories, presets, meta: { mode, seedVersion, lastSyncedAt, message? } }}
+ */
+export async function fetchPresetLibrary(householdId, { includeArchived = false } = {}) {
+  const meta = {
+    mode: 'online',
+    seedVersion: CLIENT_SEED_VERSION,
+    lastSyncedAt: null,
+    message: null,
+  }
+
+  // Meta row (best-effort)
+  try {
+    const { data: metaRow } = await supabase
+      .from('preset_library_meta')
+      .select('seed_version, last_synced_at')
+      .eq('id', 'global')
+      .maybeSingle()
+    if (metaRow) {
+      meta.seedVersion = metaRow.seed_version || CLIENT_SEED_VERSION
+      meta.lastSyncedAt = metaRow.last_synced_at
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const { data: cats, error: catErr } = await supabase
     .from('task_preset_categories')
     .select('*')
     .eq('is_active', true)
     .order('sort_order')
-  if (error || !data?.length) {
-    const cached = readSystemCache()
-    return cached?.categories || FALLBACK_CATEGORIES
-  }
-  return data
-}
 
-export async function fetchPresets(householdId, { includeArchived = false } = {}) {
-  let systemQuery = supabase
+  if (catErr && isHardError(catErr)) {
+    return {
+      categories: [],
+      presets: [],
+      meta: { ...meta, mode: 'error', message: catErr.message },
+      error: catErr,
+    }
+  }
+
+  const { data: systemRows, error: sysErr } = await supabase
     .from('task_presets')
     .select('*, category:task_preset_categories(id, key, name_zh, name_id, icon)')
     .eq('source', 'system')
@@ -70,53 +168,133 @@ export async function fetchPresets(householdId, { includeArchived = false } = {}
     .is('archived_at', null)
     .order('sort_order')
 
-  const { data: systemRows, error: sysErr } = await systemQuery
+  if (sysErr && isHardError(sysErr)) {
+    return {
+      categories: cats || [],
+      presets: [],
+      meta: { ...meta, mode: 'error', message: sysErr.message },
+      error: sysErr,
+    }
+  }
 
+  let categories = cats?.length ? cats : null
   let systemPresets = systemRows || []
-  if (sysErr || !systemPresets.length) {
+
+  const needFallback =
+    (!systemPresets.length && (!sysErr || isNetworkish(sysErr))) ||
+    (sysErr && isNetworkish(sysErr)) ||
+    isOffline()
+
+  if (needFallback && !systemPresets.length) {
     const cached = readSystemCache()
     if (cached?.presets?.length) {
       systemPresets = cached.presets
+      categories = categories || cached.categories || FALLBACK_CATEGORIES
+      meta.mode = isOffline() ? 'offline' : 'cached'
+      meta.seedVersion = cached.seedVersion || CLIENT_SEED_VERSION
+      meta.lastSyncedAt = cached.lastSyncedAt || null
+      meta.message = isOffline() ? OFFLINE_PRESET_MSG : UNAVAILABLE_PRESET_MSG
     } else {
-      systemPresets = FALLBACK_SYSTEM_PRESETS.map((p) => ({
-        ...p,
-        id: `fallback:${p.system_key}`,
-        category_key: p.category_key,
-        category: FALLBACK_CATEGORIES.find((c) => c.key === p.category_key),
-      }))
+      systemPresets = fallbackSystemPresets()
+      categories = categories || FALLBACK_CATEGORIES
+      meta.mode = isOffline() ? 'offline' : 'fallback'
+      meta.message = isOffline() ? OFFLINE_PRESET_MSG : UNAVAILABLE_PRESET_MSG
     }
-  } else {
+  } else if (systemPresets.length) {
     systemPresets = systemPresets.map((p) => ({
       ...p,
       category_key: p.category?.key,
     }))
-    cacheSystem(
-      systemPresets
-        .map((p) => p.category)
-        .filter(Boolean)
-        .filter((c, i, arr) => arr.findIndex((x) => x.id === c.id) === i),
-      systemPresets,
-    )
+    categories = categories || FALLBACK_CATEGORIES
+    const syncedAt = new Date().toISOString()
+    meta.mode = 'online'
+    meta.lastSyncedAt = syncedAt
+    cacheSystem({
+      categories,
+      presets: systemPresets,
+      seedVersion: meta.seedVersion,
+      lastSyncedAt: syncedAt,
+    })
+    // Best-effort stamp last_synced_at on server (employers may lack write; ignore fail)
+    try {
+      await supabase
+        .from('preset_library_meta')
+        .update({ last_synced_at: syncedAt, updated_at: syncedAt })
+        .eq('id', 'global')
+    } catch {
+      /* RLS may block — ok */
+    }
   }
 
+  if (!categories?.length) categories = FALLBACK_CATEGORIES
+
   let householdPresets = []
-  if (householdId) {
+  if (householdId && meta.mode === 'online') {
     let q = supabase
       .from('task_presets')
       .select('*, category:task_preset_categories(id, key, name_zh, name_id, icon)')
       .eq('source', 'household')
       .eq('household_id', householdId)
-      .eq('is_active', true)
       .order('sort_order')
-    if (!includeArchived) q = q.is('archived_at', null)
-    const { data } = await q
-    householdPresets = (data || []).map((p) => ({
-      ...p,
-      category_key: p.category?.key,
-    }))
+    if (!includeArchived) {
+      q = q.is('archived_at', null).eq('is_active', true)
+    }
+    const { data, error: hhErr } = await q
+    if (hhErr && isHardError(hhErr)) {
+      return {
+        categories,
+        presets: systemPresets,
+        meta: { ...meta, mode: 'error', message: hhErr.message },
+        error: hhErr,
+      }
+    }
+    if (!hhErr) {
+      householdPresets = (data || []).map((p) => ({
+        ...p,
+        category_key: p.category?.key,
+      }))
+    }
   }
 
-  return [...systemPresets, ...householdPresets]
+  return {
+    categories,
+    presets: [...systemPresets, ...householdPresets],
+    meta,
+  }
+}
+
+export async function fetchCategories() {
+  const { categories, meta, error } = await fetchPresetLibrary(null)
+  if (error && meta.mode === 'error') throw error
+  return categories
+}
+
+export async function fetchPresets(householdId, opts = {}) {
+  const { presets, meta, error } = await fetchPresetLibrary(householdId, opts)
+  if (error && meta.mode === 'error') {
+    // Surface hard errors to callers that check
+    const err = Object.assign(new Error(error.message), { cause: error, meta })
+    throw err
+  }
+  return presets
+}
+
+export function getSystemCacheMeta() {
+  const c = readSystemCache()
+  return c
+    ? {
+        seedVersion: c.seedVersion,
+        lastSyncedAt: c.lastSyncedAt,
+        at: c.at,
+        count: c.presets?.length || 0,
+      }
+    : null
+}
+
+/** Call on window online to refresh system cache */
+export async function refreshPresetLibraryOnReconnect(householdId) {
+  if (isOffline()) return null
+  return fetchPresetLibrary(householdId)
 }
 
 export async function fetchRecentUsage(householdId, limit = 10) {
@@ -182,7 +360,6 @@ export async function toggleFavourite(householdId, presetId, userId, isFav) {
   return { error }
 }
 
-
 export { mapBatchError } from './batchErrors.js'
 
 function draftToPayload(draft, preset, index) {
@@ -201,9 +378,13 @@ function draftToPayload(draft, preset, index) {
   const weekdays = draft.recurrence_weekdays ?? mapped.recurrence_weekdays
   const addZh =
     draft.additional_instructions_zh ??
+    preset.additional_instructions_zh ??
     draft.notes ??
     ''
-  const addId = draft.additional_instructions_id ?? ''
+  const addId =
+    draft.additional_instructions_id ??
+    preset.additional_instructions_id ??
+    ''
 
   const payload = {
     client_item_id: draft.client_item_id || String(index + 1),
@@ -239,10 +420,6 @@ function draftToPayload(draft, preset, index) {
   return payload
 }
 
-/**
- * Atomic batch create via create_tasks_from_presets RPC.
- * @param {{ householdId: string, idempotencyKey: string, items: Array<{preset: object, draft: object}> }}
- */
 export async function createTasksFromPresets({
   householdId,
   idempotencyKey,
@@ -269,9 +446,6 @@ export async function createTasksFromPresets({
   return { data }
 }
 
-/**
- * @deprecated Prefer createTasksFromPresets. Kept for single-item callers; routes through RPC.
- */
 export async function createFromPreset({
   householdId,
   userId: _userId,
@@ -305,6 +479,8 @@ export async function saveAsHouseholdPreset({
   title_id,
   instructions_zh = '',
   instructions_id = '',
+  additional_instructions_zh = '',
+  additional_instructions_id = '',
   suggested_task_type = 'scheduled',
   suggested_time = null,
   suggested_recurrence = null,
@@ -323,6 +499,8 @@ export async function saveAsHouseholdPreset({
       title_id,
       instructions_zh,
       instructions_id,
+      additional_instructions_zh,
+      additional_instructions_id,
       suggested_task_type,
       suggested_time,
       suggested_recurrence,
@@ -331,18 +509,41 @@ export async function saveAsHouseholdPreset({
       translation_approved,
       keywords,
       created_by: userId,
+      template_version: 1,
     })
     .select()
     .single()
   return { data, error }
 }
 
+export async function updateHouseholdPreset(presetId, patch) {
+  const { data, error } = await supabase.rpc('update_household_preset', {
+    p_preset_id: presetId,
+    p_patch: patch,
+  })
+  return { data, error }
+}
+
 export async function archiveHouseholdPreset(presetId) {
-  return supabase
-    .from('task_presets')
-    .update({ archived_at: new Date().toISOString(), is_active: false })
-    .eq('id', presetId)
-    .eq('source', 'household')
+  const { data, error } = await supabase.rpc('archive_household_preset', {
+    p_preset_id: presetId,
+  })
+  return { data, error }
+}
+
+export async function restoreHouseholdPreset(presetId) {
+  const { data, error } = await supabase.rpc('restore_household_preset', {
+    p_preset_id: presetId,
+  })
+  return { data, error }
+}
+
+export async function countPresetUsage(presetId) {
+  const { count, error } = await supabase
+    .from('task_preset_usage')
+    .select('id', { count: 'exact', head: true })
+    .eq('preset_id', presetId)
+  return { count: count || 0, error }
 }
 
 export async function duplicateHouseholdPreset(preset, householdId, userId) {
@@ -354,6 +555,8 @@ export async function duplicateHouseholdPreset(preset, householdId, userId) {
     title_id: `${preset.title_id} (salinan)`,
     instructions_zh: preset.instructions_zh,
     instructions_id: preset.instructions_id,
+    additional_instructions_zh: preset.additional_instructions_zh || '',
+    additional_instructions_id: preset.additional_instructions_id || '',
     suggested_task_type: preset.suggested_task_type,
     suggested_time: preset.suggested_time,
     suggested_recurrence: preset.suggested_recurrence,
@@ -364,3 +567,27 @@ export async function duplicateHouseholdPreset(preset, householdId, userId) {
   })
 }
 
+/** Copy a system preset into the household library (system remains read-only). */
+export async function copySystemPresetToHousehold(preset, householdId, userId) {
+  if (preset.source !== 'system' && !String(preset.id).startsWith('fallback:')) {
+    return duplicateHouseholdPreset(preset, householdId, userId)
+  }
+  return saveAsHouseholdPreset({
+    householdId,
+    userId,
+    categoryId: preset.category_id || preset.category?.id,
+    title_zh: preset.title_zh,
+    title_id: preset.title_id,
+    instructions_zh: preset.instructions_zh || '',
+    instructions_id: preset.instructions_id || '',
+    additional_instructions_zh: preset.additional_instructions_zh || '',
+    additional_instructions_id: preset.additional_instructions_id || '',
+    suggested_task_type: preset.suggested_task_type || 'scheduled',
+    suggested_time: preset.suggested_time,
+    suggested_recurrence: preset.suggested_recurrence,
+    suggested_priority: preset.suggested_priority || 'normal',
+    safety_warning: !!preset.safety_warning,
+    translation_approved: preset.translation_approved !== false,
+    keywords: preset.keywords || [],
+  })
+}
