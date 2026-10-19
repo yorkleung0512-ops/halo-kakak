@@ -14,6 +14,7 @@ import {
   FALLBACK_CATEGORIES,
   FALLBACK_SYSTEM_PRESETS,
 } from '../data/systemPresetsFallback'
+import { draftToPayload } from './taskPayload'
 import {
   mapRecurrence,
   CLIENT_SEED_VERSION,
@@ -21,6 +22,7 @@ import {
   UNAVAILABLE_PRESET_MSG,
 } from './presetUtils'
 
+export { draftToPayload } from './taskPayload'
 export {
   mapRecurrence,
   detectSensitiveContent,
@@ -362,63 +364,6 @@ export async function toggleFavourite(householdId, presetId, userId, isFav) {
 
 export { mapBatchError } from './batchErrors.js'
 
-function draftToPayload(draft, preset, index) {
-  const title_zh = (draft.title_zh ?? preset.title_zh).trim()
-  const title_id = (draft.title_id ?? preset.title_id).trim()
-  const mode =
-    draft.mode === 'scheduled' && draft.recurrence_rule !== 'none'
-      ? 'scheduled'
-      : draft.mode === 'adhoc' || draft.recurrence_rule === 'none'
-        ? 'adhoc'
-        : draft.mode || 'adhoc'
-  const mapped = mapRecurrence(
-    draft.suggested_recurrence || preset.suggested_recurrence,
-  )
-  const rule = draft.recurrence_rule || mapped.recurrence_rule || 'daily'
-  const weekdays = draft.recurrence_weekdays ?? mapped.recurrence_weekdays
-  const addZh =
-    draft.additional_instructions_zh ??
-    preset.additional_instructions_zh ??
-    draft.notes ??
-    ''
-  const addId =
-    draft.additional_instructions_id ??
-    preset.additional_instructions_id ??
-    ''
-
-  const payload = {
-    client_item_id: draft.client_item_id || String(index + 1),
-    preset_id: preset.id,
-    mode,
-    title_zh,
-    title_id,
-    instructions_zh: draft.instructions_zh ?? preset.instructions_zh ?? '',
-    instructions_id: draft.instructions_id ?? preset.instructions_id ?? '',
-    additional_instructions_zh: addZh,
-    additional_instructions_id: addId,
-    task_date: draft.date || todayHK(),
-    due_time: draft.time || null,
-    start_date: draft.start_date || draft.date || todayHK(),
-    end_date: draft.end_date || null,
-    priority: draft.priority || preset.suggested_priority || 'normal',
-    assigned_to: draft.assigned_to || null,
-    translation_approved:
-      draft.translation_approved ??
-      (draft.zhEdited ? false : preset.translation_approved !== false),
-  }
-  if (mode === 'scheduled') {
-    payload.recurrence_rule = rule === 'none' ? 'daily' : rule
-    if (weekdays?.length) payload.recurrence_weekdays = weekdays
-    const interval = Number(
-      draft.recurrence_interval ?? mapped.recurrence_interval ?? 1,
-    )
-    payload.recurrence_interval = Math.min(365, Math.max(1, interval || 1))
-    if (payload.recurrence_rule === 'biweekly') {
-      payload.recurrence_interval = Math.max(payload.recurrence_interval, 2)
-    }
-  }
-  return payload
-}
 
 export async function createTasksFromPresets({
   householdId,
@@ -432,11 +377,20 @@ export async function createTasksFromPresets({
     return { error: { message: 'BATCH_FAILED' } }
   }
   for (const it of items) {
+    const isCustom = it.custom === true || it.preset == null
+    if (isCustom) {
+      if (!(it.draft?.title_zh || '').trim()) {
+        return { error: { message: 'BATCH_FAILED' } }
+      }
+      continue
+    }
     if (!it.preset?.id || String(it.preset.id).startsWith('fallback:')) {
       return { error: { message: 'INVALID_PRESET' } }
     }
   }
-  const p_tasks = items.map((it, i) => draftToPayload(it.draft, it.preset, i))
+  const p_tasks = items.map((it, i) =>
+    draftToPayload(it.draft, it.custom || it.preset == null ? null : it.preset, i),
+  )
   const { data, error } = await supabase.rpc('create_tasks_from_presets', {
     p_household_id: householdId,
     p_idempotency_key: idempotencyKey,
@@ -444,6 +398,41 @@ export async function createTasksFromPresets({
   })
   if (error) return { error }
   return { data }
+}
+
+/**
+ * Employer custom ad-hoc / scheduled create via the same atomic RPC + notifications.
+ */
+export async function createCustomTask({
+  householdId,
+  draft,
+  idempotencyKey,
+}) {
+  const key = idempotencyKey || crypto.randomUUID()
+  const recurrence = draft.recurrence_rule || 'none'
+  const mode = recurrence !== 'none' ? 'scheduled' : 'adhoc'
+  const normalized = {
+    ...draft,
+    mode,
+    recurrence_rule: recurrence,
+    title_zh: (draft.title_zh || '').trim(),
+    title_id: (draft.title_id || '').trim(),
+    client_item_id: draft.client_item_id || 'custom-1',
+  }
+  const { data, error } = await createTasksFromPresets({
+    householdId,
+    idempotencyKey: key,
+    items: [{ custom: true, preset: null, draft: normalized }],
+  })
+  if (error) return { error }
+  const created = data?.created?.[0]
+  return {
+    data,
+    occurrence: created?.occurrence_id
+      ? { id: created.occurrence_id }
+      : undefined,
+    template: created?.template_id ? { id: created.template_id } : undefined,
+  }
 }
 
 export async function createFromPreset({

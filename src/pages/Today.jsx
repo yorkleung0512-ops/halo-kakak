@@ -22,6 +22,7 @@ import QuickAddSection from '../components/presets/QuickAddSection'
 import EditTaskModal from '../components/EditTaskModal'
 import AssigneePicker from '../components/presets/AssigneePicker'
 import { fetchActiveHelpers } from '../lib/assignees'
+import { createCustomTask, mapBatchError } from '../lib/presets'
 
 export default function Today() {
   const { user } = useAuth()
@@ -290,136 +291,29 @@ export default function Today() {
     rec.start()
   }
 
-  async function submitTask(e) {
-    e.preventDefault()
-    if (!formZh.trim() || !household?.id || previewHelper) return
-
-    const due =
-      formTime &&
-      `${todayHK()}T${formTime}:00`
-
-    if (formRecurrence === 'none') {
-      const { error } = await supabase.from('task_occurrences').insert({
-        household_id: household.id,
-        task_date: todayHK(),
-        due_at: due
-          ? new Date(
-              new Date(due).toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }),
-            ).toISOString()
-          : null,
-        title_zh: formZh.trim(),
-        title_id: formId.trim(),
-        priority: formUrgent ? 'urgent' : 'normal',
-        status: 'pending',
-        created_by: user.id,
-        translation_approved: approveTranslation,
-      })
-      // Fix due_at: use proper timestamptz construction
-      if (error) {
-        // fallback without weird due parsing
-        const { error: e2 } = await supabase.from('task_occurrences').insert({
-          household_id: household.id,
-          task_date: todayHK(),
-          title_zh: formZh.trim(),
-          title_id: formId.trim(),
-          priority: formUrgent ? 'urgent' : 'normal',
-          status: 'pending',
-          created_by: user.id,
-          translation_approved: approveTranslation,
-        })
-        if (e2) {
-          showToast(e2.message)
-          return
-        }
-      }
-    } else {
-      const { data: tmpl, error } = await supabase
-        .from('task_templates')
-        .insert({
-          household_id: household.id,
-          title_zh: formZh.trim(),
-          title_id: formId.trim(),
-          default_time: formTime || null,
-          recurrence_rule: formRecurrence,
-          priority: formUrgent ? 'urgent' : 'normal',
-          created_by: user.id,
-          translation_approved: approveTranslation,
-          start_date: todayHK(),
-        })
-        .select()
-        .single()
-      if (error) {
-        showToast(error.message)
-        return
-      }
-      await ensureToday()
-      void tmpl
-    }
-
-    setShowAdd(false)
-    setFormZh('')
-    setFormId('')
-    setFormAddZh('')
-    setFormAddId('')
-    setFormAssignedTo(null)
-    setApproveTranslation(false)
-    showToast('已新增')
-    loadTasks()
-  }
-
-  // Fix one-shot insert with cleaner due_at
-  async function createOneShot() {
-    let dueAt = null
-    if (formTime) {
-      // Asia/Hong_Kong offset roughly — store as timestamptz via date+time string
-      dueAt = `${todayHK()}T${formTime}:00+08:00`
-    }
-    const { error } = await supabase.from('task_occurrences').insert({
-      household_id: household.id,
-      task_date: todayHK(),
-      due_at: dueAt,
-      title_zh: formZh.trim(),
-      title_id: formId.trim(),
-      additional_instructions_zh: formAddZh,
-      additional_instructions_id: formAddId,
-      assigned_to: formAssignedTo || null,
-      priority: formUrgent ? 'urgent' : 'normal',
-      status: 'pending',
-      created_by: user.id,
-      translation_approved: approveTranslation,
-    })
-    return error
-  }
-
-  // Override submit to use createOneShot for none
   async function onAddSubmit(e) {
     e.preventDefault()
     if (!formZh.trim() || !household?.id || previewHelper) return
-    if (formRecurrence === 'none') {
-      const err = await createOneShot()
-      if (err) {
-        showToast(err.message)
-        return
-      }
-    } else {
-      const { error } = await supabase.from('task_templates').insert({
-        household_id: household.id,
+    const { error } = await createCustomTask({
+      householdId: household.id,
+      draft: {
         title_zh: formZh.trim(),
         title_id: formId.trim(),
         additional_instructions_zh: formAddZh,
         additional_instructions_id: formAddId,
-        assigned_to: formAssignedTo || null,
-        default_time: formTime || null,
+        time: formTime || null,
+        date: todayHK(),
         recurrence_rule: formRecurrence,
         priority: formUrgent ? 'urgent' : 'normal',
-        created_by: user.id,
+        assigned_to: formAssignedTo || null,
         translation_approved: approveTranslation,
-        start_date: todayHK(),
-      })
-      if (error) {
-        showToast(error.message)
-        return
-      }
+      },
+    })
+    if (error) {
+      showToast(mapBatchError(error))
+      return
+    }
+    if (formRecurrence !== 'none') {
       await ensureToday()
     }
     setShowAdd(false)
@@ -432,8 +326,6 @@ export default function Today() {
     showToast('已新增')
     loadTasks()
   }
-
-  void submitTask // keep linter calm if unused
 
   const riskForm = isHighRisk(formZh)
 

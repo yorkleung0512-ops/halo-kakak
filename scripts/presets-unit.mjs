@@ -16,6 +16,7 @@ import {
   UNAVAILABLE_PRESET_MSG,
 } from '../src/lib/presetUtils.js'
 import { mapBatchError } from '../src/lib/batchErrors.js'
+import { draftToPayload } from '../src/lib/taskPayload.js'
 
 
 let failed = 0
@@ -173,6 +174,56 @@ assert(
   'sensitive before save kinds',
   detectSensitiveContent('請打 91234567 同銀行戶口 12345678').kinds.length >= 1,
 )
+
+
+const customPayload = draftToPayload(
+  {
+    title_zh: '自訂拖地',
+    title_id: 'Pel lantai',
+    additional_instructions_zh: '門口',
+    additional_instructions_id: 'Pintu',
+    time: '10:00',
+    date: '2026-10-19',
+    recurrence_rule: 'none',
+    priority: 'urgent',
+    assigned_to: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    translation_approved: true,
+  },
+  null,
+  0,
+)
+assert('custom payload null preset_id', customPayload.preset_id === null)
+assert('custom payload adhoc', customPayload.mode === 'adhoc')
+assert('custom payload keeps addl', customPayload.additional_instructions_zh === '門口')
+assert('custom payload assignee', customPayload.assigned_to?.startsWith('aaaa'))
+
+const schedPayload = draftToPayload(
+  {
+    title_zh: '每週清潔',
+    title_id: 'Bersih mingguan',
+    recurrence_rule: 'weekly',
+    mode: 'scheduled',
+    time: '09:00',
+  },
+  null,
+  1,
+)
+assert('custom scheduled mode', schedPayload.mode === 'scheduled')
+assert('custom scheduled rule', schedPayload.recurrence_rule === 'weekly')
+assert('custom scheduled null preset', schedPayload.preset_id === null)
+
+const presetPayload = draftToPayload(
+  { title_zh: '覆寫', recurrence_rule: 'none' },
+  {
+    id: 'p1',
+    title_zh: '原',
+    title_id: 'Asli',
+    suggested_priority: 'normal',
+    translation_approved: true,
+  },
+  0,
+)
+assert('preset payload keeps id', presetPayload.preset_id === 'p1')
 
 console.log(failed ? `\n${failed} failed` : '\nAll passed')
 process.exit(failed ? 1 : 0)
