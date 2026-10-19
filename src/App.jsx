@@ -38,7 +38,7 @@ function Shell({ children }) {
           </div>
           <div>
             <h1 className="text-base font-bold text-slate-900">
-              'Hola-Kakak'
+              Hola-Kakak
             </h1>
             <p className="text-xs text-slate-500">
               {household?.name ||
