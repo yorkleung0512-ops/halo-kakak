@@ -109,6 +109,21 @@ export default function HouseholdPage() {
     }
   }
 
+  async function changeMemberRole(uid, newRole) {
+    if (!canManageMembers) return
+    if (newRole !== 'employer' && newRole !== 'helper') return
+    const { error } = await supabase.rpc('change_household_member_role', {
+      p_household_id: household.id,
+      p_member_user_id: uid,
+      p_new_role: newRole,
+    })
+    if (error) setToast(error.message)
+    else {
+      setToast(newRole === 'employer' ? '已改為僱主' : '已改為姐姐')
+      load()
+    }
+  }
+
   async function addGlossary(e) {
     e.preventDefault()
     if (!gZh.trim() || !gId.trim()) return
@@ -254,14 +269,27 @@ export default function HouseholdPage() {
                 <p className="text-xs text-slate-500">{m.role}</p>
               </div>
               {canManageMembers && m.user_id !== user.id && (
-                <button
-                  type="button"
-                  onClick={() => removeMember(m.user_id)}
-                  aria-label="移除成員"
-                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-rose-700"
-                >
-                  <UserMinus className="h-5 w-5" />
-                </button>
+                <div className="flex items-center gap-1">
+                  {(m.role === 'helper' || m.role === 'employer') && (
+                    <select
+                      aria-label="更改角色"
+                      value={m.role}
+                      onChange={(e) => changeMemberRole(m.user_id, e.target.value)}
+                      className="min-h-11 rounded-xl border border-slate-200 px-2 text-xs"
+                    >
+                      <option value="helper">姐姐</option>
+                      <option value="employer">僱主</option>
+                    </select>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeMember(m.user_id)}
+                    aria-label="移除成員"
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-rose-700"
+                  >
+                    <UserMinus className="h-5 w-5" />
+                  </button>
+                </div>
               )}
             </li>
           ))}
