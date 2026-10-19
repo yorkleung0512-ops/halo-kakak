@@ -80,7 +80,7 @@ export default function HouseholdPage() {
   function shareWhatsApp() {
     if (!inviteLink) return
     const text = encodeURIComponent(
-      `Halo Kakak — silakan buka tautan undangan ini untuk bergabung:\n${inviteLink}`,
+      `Hola-Kakak — silakan buka tautan undangan ini untuk bergabung:\n${inviteLink}`,
     )
     window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener')
   }

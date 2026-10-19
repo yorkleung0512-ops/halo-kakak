@@ -1,4 +1,4 @@
-/* Halo Kakak service worker — caches app shell only; never caches private API */
+/* Hola-Kakak service worker — caches app shell only; never caches private API */
 const CACHE = 'halo-kakak-shell-v1'
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg']
 

@@ -1,4 +1,4 @@
-# 屋企家務通 · Halo Kakak
+# Hola-Kakak
 
 香港僱主同印尼籍家庭傭工嘅**雙語家務管理** web app（mobile-first）。
 

@@ -16,6 +16,9 @@ export {
   detectSensitiveContent,
   filterPresets,
   recurrenceLabel,
+  buildQuickAddList,
+  scoreQuickAddPreset,
+  hourHK,
 } from './presetUtils'
 
 const SYSTEM_CACHE_KEY = 'halo-kakak:system-presets:v1'

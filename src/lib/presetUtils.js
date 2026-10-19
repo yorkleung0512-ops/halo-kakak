@@ -98,3 +98,79 @@ export function recurrenceLabel(rec) {
   }
   return map[rule] || '自訂'
 }
+
+/** Hong Kong hour 0–23 for time-of-day ranking */
+export function hourHK(now = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Hong_Kong',
+      hour: 'numeric',
+      hour12: false,
+    }).formatToParts(now)
+    return Number(parts.find((p) => p.type === 'hour')?.value || 12)
+  } catch {
+    return now.getHours()
+  }
+}
+
+/**
+ * Score a preset for Quick Add ranking.
+ * Higher = better. Favourites → recent → time-of-day → defaults.
+ */
+export function scoreQuickAddPreset(preset, ctx) {
+  const {
+    favouriteIds = new Set(),
+    recentIds = [],
+    hour = 12,
+  } = ctx
+  let score = 0
+  if (favouriteIds.has(preset.id)) score += 1000
+  const recentIdx = recentIds.indexOf(preset.id)
+  if (recentIdx >= 0) score += 500 - recentIdx * 10
+
+  const time = (preset.suggested_time || '').toString().slice(0, 5)
+  if (time) {
+    const [h] = time.split(':').map(Number)
+    const dist = Math.min(Math.abs(h - hour), 24 - Math.abs(h - hour))
+    score += Math.max(0, 80 - dist * 8)
+  }
+
+  if (preset.source === 'household') score += 40
+  const cat = preset.category_key || preset.category?.key
+  // Morning: cooking / transport / baby; afternoon: cleaning / laundry; evening: cooking / childcare
+  const morning = new Set(['cooking', 'transport', 'baby', 'pets'])
+  const afternoon = new Set(['cleaning', 'laundry', 'shopping', 'maintenance'])
+  const evening = new Set(['cooking', 'childcare', 'elderly', 'special'])
+  if (hour < 11 && morning.has(cat)) score += 25
+  else if (hour < 17 && afternoon.has(cat)) score += 25
+  else if (evening.has(cat)) score += 25
+
+  score += Math.max(0, 20 - (preset.sort_order || 0) / 5)
+  return score
+}
+
+/**
+ * Build Quick Add list: favourites → recent → time-of-day → popularity/defaults.
+ * @returns up to `limit` presets (default 16, max 20)
+ */
+export function buildQuickAddList(
+  { favourites = [], recent = [], all = [] },
+  { limit = 16, max = 20 } = {},
+) {
+  const cap = Math.min(Math.max(limit, 10), max)
+  const favouriteIds = new Set(favourites.map((p) => p.id))
+  const recentIds = recent.map((p) => p.id)
+  const hour = hourHK()
+  const byId = new Map()
+  for (const p of [...favourites, ...recent, ...all]) {
+    if (!p?.id || byId.has(p.id)) continue
+    if (p.archived_at) continue
+    byId.set(p.id, p)
+  }
+  const ranked = [...byId.values()].sort(
+    (a, b) =>
+      scoreQuickAddPreset(b, { favouriteIds, recentIds, hour }) -
+      scoreQuickAddPreset(a, { favouriteIds, recentIds, hour }),
+  )
+  return ranked.slice(0, cap)
+}

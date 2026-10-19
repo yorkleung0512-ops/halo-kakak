@@ -7,6 +7,7 @@ import {
   detectSensitiveContent,
   filterPresets,
   recurrenceLabel,
+  buildQuickAddList,
 } from '../src/lib/presetUtils.js'
 
 let failed = 0
@@ -79,6 +80,26 @@ assert(
   ),
 )
 assert('label daily', recurrenceLabel({ rule: 'daily' }) === '每日')
+
+const qa = buildQuickAddList(
+  {
+    favourites: [{ id: 'f1', title_zh: 'fav', source: 'household', category_key: 'cooking' }],
+    recent: [{ id: 'r1', title_zh: 'recent', source: 'system', category_key: 'cleaning' }],
+    all: Array.from({ length: 30 }, (_, i) => ({
+      id: `s${i}`,
+      title_zh: `sys${i}`,
+      source: 'system',
+      category_key: 'cleaning',
+      sort_order: i,
+      suggested_time: '10:00',
+    })),
+  },
+  { limit: 16, max: 20 },
+)
+assert('quick add size 10-20', qa.length >= 10 && qa.length <= 20, `n=${qa.length}`)
+assert('quick add fav first', qa[0].id === 'f1')
+assert('quick add cap 20', buildQuickAddList({ all: Array.from({length:40},(_,i)=>({id:`x${i}`,source:'system',category_key:'pets',sort_order:i})) }, { limit: 16, max: 20 }).length <= 20)
+
 
 console.log(failed ? `\n${failed} failed` : '\nAll passed')
 process.exit(failed ? 1 : 0)

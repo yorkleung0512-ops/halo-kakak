@@ -1,4 +1,4 @@
-import { Volume2, AlertTriangle } from 'lucide-react'
+import { Volume2, AlertTriangle, Pencil } from 'lucide-react'
 import { STATUS_LABELS, formatTimeHK, isHighRisk } from '../lib/constants'
 import { speakIndonesian } from '../lib/translateClient'
 import StatusActions from './StatusActions'
@@ -8,6 +8,8 @@ export default function TaskCard({
   isHelperView,
   canAct,
   onStatusAction,
+  onEdit,
+  canEdit,
   highlight,
   readOnly,
 }) {
@@ -90,6 +92,17 @@ export default function TaskCard({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
+        {canEdit && !readOnly && onEdit && (
+          <button
+            type="button"
+            onClick={() => onEdit(task)}
+            aria-label="編輯任務"
+            className="inline-flex min-h-11 items-center gap-1 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+          >
+            <Pencil className="h-4 w-4" aria-hidden />
+            編輯
+          </button>
+        )}
         {task.title_id && (
           <button
             type="button"

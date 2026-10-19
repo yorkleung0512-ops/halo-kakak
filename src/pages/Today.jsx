@@ -18,6 +18,7 @@ import Modal from '../components/Modal'
 import Toast from '../components/Toast'
 import AddTaskFlow from '../components/presets/AddTaskFlow'
 import QuickAddSection from '../components/presets/QuickAddSection'
+import EditTaskModal from '../components/EditTaskModal'
 
 export default function Today() {
   const { user } = useAuth()
@@ -48,6 +49,7 @@ export default function Today() {
   const [commentText, setCommentText] = useState('')
   const [pendingAction, setPendingAction] = useState(null)
   const [pendingCount, setPendingCount] = useState(0)
+  const [editTask, setEditTask] = useState(null)
 
   const showToast = useCallback((msg, offline = false) => {
     setToast(msg)
@@ -437,6 +439,8 @@ export default function Today() {
                 isHelperView={effectiveIsHelper}
                 canAct={effectiveIsHelper && !previewHelper}
                 readOnly={previewHelper}
+                canEdit={canEditTasks && !previewHelper}
+                onEdit={setEditTask}
                 onStatusAction={(a) => onStatusAction(nextTask, a)}
               />
             </section>
@@ -454,6 +458,8 @@ export default function Today() {
                     task={t}
                     isHelperView={false}
                     canAct={false}
+                    canEdit={canEditTasks && !previewHelper}
+                    onEdit={setEditTask}
                   />
                 ))}
               </div>
@@ -476,7 +482,9 @@ export default function Today() {
                     isHelperView={effectiveIsHelper}
                     canAct={effectiveIsHelper && !previewHelper}
                     readOnly={previewHelper}
-                    onStatusAction={(a) => onStatusAction(t, a)}
+                    canEdit={canEditTasks && !previewHelper}
+                onEdit={setEditTask}
+                onStatusAction={(a) => onStatusAction(t, a)}
                   />
                 ))}
               </div>
@@ -518,7 +526,9 @@ export default function Today() {
                   isHelperView={effectiveIsHelper}
                   canAct={effectiveIsHelper && !previewHelper}
                   readOnly={previewHelper}
-                  onStatusAction={(a) => onStatusAction(t, a)}
+                  canEdit={canEditTasks && !previewHelper}
+                onEdit={setEditTask}
+                onStatusAction={(a) => onStatusAction(t, a)}
                 />
               ))}
             </div>
@@ -709,6 +719,24 @@ export default function Today() {
           {effectiveIsHelper ? 'Kirim' : '送出'}
         </button>
       </Modal>
+
+      <EditTaskModal
+        open={!!editTask}
+        task={editTask}
+        onClose={() => setEditTask(null)}
+        glossary={glossary}
+        userId={user?.id}
+        onToast={showToast}
+        onSaved={(updated) => {
+          if (updated?.id) {
+            setTasks((prev) =>
+              prev.map((x) => (x.id === updated.id ? updated : x)),
+            )
+          } else {
+            loadTasks()
+          }
+        }}
+      />
 
       <Toast message={toast} offline={toastOffline} />
     </div>

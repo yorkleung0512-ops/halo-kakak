@@ -38,13 +38,13 @@ function Shell({ children }) {
           </div>
           <div>
             <h1 className="text-base font-bold text-slate-900">
-              {effectiveIsHelper ? 'Halo Kakak!' : '屋企家務通'}
+              'Hola-Kakak'
             </h1>
             <p className="text-xs text-slate-500">
               {household?.name ||
                 (effectiveIsHelper
                   ? 'Manajer Rumah Tangga'
-                  : 'Halo Kakak · 雙語家務')}
+                  : 'Hola-Kakak · 雙語家務')}
             </p>
           </div>
         </div>

@@ -35,10 +35,10 @@ export default function SignIn() {
           🏠
         </div>
         <h1 lang="zh-Hant" className="text-2xl font-bold text-slate-900">
-          屋企家務通
+          Hola-Kakak
         </h1>
         <p lang="id" className="text-sm text-slate-500">
-          Halo Kakak
+          Hola-Kakak
         </p>
       </div>
 
