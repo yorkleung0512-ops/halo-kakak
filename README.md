@@ -1,67 +1,103 @@
 # 屋企家務通 · Halo Kakak
 
-香港僱主 ↔ 印尼籍家庭傭工（Kakak）雙語家務 Dashboard。
+香港僱主同印尼籍家庭傭工嘅**雙語家務管理** web app（mobile-first）。
 
-Bilingual household task & routine app for Hong Kong employers and Indonesian domestic helpers.
+- 公開網址：https://halo-kakak.pages.dev
+- GitHub：https://github.com/yorkleung0512-ops/halo-kakak
+- Supabase project：`yevqwospotfujiziegpz`
 
-## Features / 功能
+## 認證流程（唔再用房間碼）
 
-- **雙語顯示**：每項同時顯示繁中／廣東話 + Bahasa Indonesia
-- **僱主／姐姐模式**：`?mode=kakak` 放大印尼文、大 checkbox
-- **每日固定時間表** + **今日特別任務**（Urgent、完成時間）
-- **廣東話語音輸入**（Web Speech API `zh-HK`）→ MyMemory 翻譯 + 香港家務詞庫
-- **印尼文朗讀**（`speechSynthesis` `id-ID`）
-- **房間碼同步**：Supabase `household_sync` + Realtime／輪詢 + `localStorage` + `BroadcastChannel`
+1. 僱主用**電郵 magic link**登入（免密碼）。
+2. 首次登入後**建立家庭**（成為 `owner`）。
+3. 喺「家庭」頁產生**一次性邀請連結**，經 WhatsApp 傳畀姐姐。
+4. 姐姐打開 `/invite/<token>` → 登入 → 接受邀請 → 角色係 `helper`。
+5. 權限由 Supabase **RLS + RPC** 強制；前端顯示唔係安全邊界。
+6. 僱主可開「Preview helper view」（唯讀，唔改真實角色）。
 
-## Quick start
+> `?room=` / `?mode=kakak` **唔再**當登入憑證。
+
+## 環境變數
+
+複製 `.env.example`：
+
+```
+VITE_SUPABASE_URL=https://yevqwospotfujiziegpz.supabase.co
+VITE_SUPABASE_ANON_KEY=<anon key>
+```
+
+**千祈唔好**把 `service_role` key 放進前端。
+
+## 本機開發
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173 — default room `HOME-888`.
+## 資料庫 migration
 
-Helper link example:
+檔案喺 `supabase/migrations/`。已套用到 production 嘅基礎 schema：
 
-```
-https://YOUR_DOMAIN/?room=HOME-888&mode=kakak
-```
+1. `20261019150000_normalized_schema.sql`
+2. `20261019150100_rls_policies.sql`
+3. `20261019150200_rpc_auth_invites.sql`
 
-## Environment
+舊表 `household_sync` **保留**，新 app **唔再寫入**。詳見 `docs/MIGRATION.md`。
 
-| Variable | Description |
-|----------|-------------|
-| `VITE_SUPABASE_URL` | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | Public anon key |
+本地 seed（只供開發）：`supabase/seed.local.sql`（唔會自動跑上 production）。
 
-Copy `.env.example` → `.env`. If unset, the app falls back to the provisioned `halo-kakak` project anon credentials (safe for frontend; never commit `service_role`).
+## Edge Function：translate
 
-Schema reference: [`supabase/schema.sql`](supabase/schema.sql).
+- 路徑：`supabase/functions/translate`
+- `verify_jwt: true` — 必須帶用戶 JWT
+- 前端只可經 `supabase.functions.invoke('translate')` 翻譯
+- Rate limit；**唔會** log 完整任務文字；**唔會**把 user/household id 傳去 MyMemory
 
-## Cloudflare Pages deploy
-
-1. Connect this GitHub repo to **Cloudflare Pages**.
-2. Build settings:
-   - **Framework preset**: Vite
-   - **Build command**: `npm run build`
-   - **Build output directory**: `dist`
-3. (Optional) Environment variables:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-4. Deploy. Share `https://YOUR_PAGES_DOMAIN/?room=HOME-888&mode=kakak` via WhatsApp.
-
-Or CLI:
+部署：
 
 ```bash
-npm run build
-npx wrangler pages deploy dist --project-name=halo-kakak
+# via Supabase MCP / CLI
+supabase functions deploy translate --project-ref yevqwospotfujiziegpz
 ```
 
-## Security note
+URL：`https://yevqwospotfujiziegpz.supabase.co/functions/v1/translate`
 
-Current RLS allows anon read/write by `room_code` for easy demo. For production, tighten with signed room tokens or an Edge Function.
+## Auth 後台設定（必須）
 
-## Stack
+喺 Supabase Dashboard → Authentication：
 
-Vite · React · Tailwind CSS v4 · Lucide · Supabase JS
+1. 開啟 **Email** provider（magic link / OTP）。
+2. Redirect URLs 加入：
+   - `https://halo-kakak.pages.dev/**`
+   - `http://localhost:5173/**`
+3. Phone OTP（Twilio）屬可選；MVP **唔要求密碼**。
+
+## RLS smoke test
+
+```bash
+SUPABASE_URL=... SUPABASE_ANON_KEY=... \
+EMPLOYER_ACCESS_TOKEN=... HELPER_ACCESS_TOKEN=... \
+node scripts/rls-smoke.mjs
+```
+
+清單對應 `supabase/tests/rls_checks.sql` 12 項。
+
+## 點樣測試
+
+1. 開網站 → 輸入電郵 → 查收 magic link → 登入。
+2. 建立家庭。
+3. 「家庭」→ 產生邀請 → WhatsApp / 複製連結。
+4. 另一電郵開邀請連結 → 登入 → 接受 → 姐姐介面。
+5. 僱主新增任務（可語音、翻譯、核准印尼文）→ 姐姐改狀態（明白／開始／有問題／完成等）。
+6. 斷網改狀態 → 應見到離線提示，恢復後自動同步。
+
+## PWA / 保安
+
+- Manifest + service worker（只 cache app shell；**唔** cache private API）
+- `public/_headers`：CSP、HSTS、frame-ancestors、Referrer-Policy、X-Content-Type-Options
+- CSP **冇** `unsafe-eval`
+
+## 技術棧
+
+Vite + React + Tailwind + Supabase Auth/DB/Edge + Cloudflare Pages
