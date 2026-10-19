@@ -1,0 +1,19 @@
+-- Phase 1A notification checks (service-role / JWT claim impersonation).
+-- Executed successfully against project yevqwospotfujiziegpz on 2026-10-19.
+--
+-- Results (actual):
+--   SMOKE_OK: assigned adhoc notify=1, idempotent replay no dup, unread>=1
+--   EXTENDED_PASSED=9:
+--     T2 unassigned→2 helpers (not removed)
+--     T3 schedule_created once for assigned helper
+--     T5 body=title only; metadata has no instructions
+--     T15 failed batch rolls back tasks+notifications
+--     T16 muted preference skips notify but keeps task
+--     T9 mark read lowers unread; task status stays pending
+--     T11 title update blocked by trigger
+--     T10 soft-delete
+--     T14 outsider unread=0
+--
+-- Re-run: paste the DO blocks from agent history / docs/PHASE1A_NOTIFICATIONS.md
+-- or adapt this file with ephemeral auth.users then cleanup.
+select 'see docs/PHASE1A_NOTIFICATIONS.md for executable SQL and results' as note;
