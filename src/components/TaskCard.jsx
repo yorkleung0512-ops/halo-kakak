@@ -12,6 +12,7 @@ export default function TaskCard({
   canEdit,
   highlight,
   readOnly,
+  htmlId,
 }) {
   const meta = STATUS_LABELS[task.status] || STATUS_LABELS.pending
   const risk = isHighRisk(`${task.title_zh} ${task.instructions_zh || ''}`)
@@ -22,6 +23,7 @@ export default function TaskCard({
 
   return (
     <article
+      id={htmlId || (task?.id ? `task-${task.id}` : undefined)}
       className={`rounded-2xl border bg-white p-4 shadow-sm ${
         highlight
           ? 'border-teal-400 ring-2 ring-teal-100'

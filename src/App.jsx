@@ -2,8 +2,13 @@ import { useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/auth'
 import { HouseholdProvider, useHousehold } from './lib/household'
+import { NotificationsProvider } from './lib/notificationsContext'
 import Nav from './components/Nav'
 import PreviewBanner from './components/PreviewBanner'
+import NotificationBell from './components/notifications/NotificationBell'
+import NotificationCentre from './components/notifications/NotificationCentre'
+import NotificationToast from './components/notifications/NotificationToast'
+import NotificationDeepLink from './components/notifications/NotificationDeepLink'
 import SignIn from './pages/SignIn'
 import AuthCallback from './pages/AuthCallback'
 import InviteAccept from './pages/InviteAccept'
@@ -26,32 +31,38 @@ function Shell({ children }) {
   const { effectiveIsHelper, previewHelper, setPreview, household } =
     useHousehold()
   return (
-    <div className="min-h-screen pb-24">
-      <DocumentLang isHelper={effectiveIsHelper} />
-      {previewHelper && (
-        <PreviewBanner onExit={() => setPreview(false)} lang="zh" />
-      )}
-      <header className="sticky top-0 z-30 border-b border-teal-100/80 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-700 text-lg text-white">
-            🏠
+    <NotificationsProvider>
+      <div className="min-h-screen pb-24">
+        <DocumentLang isHelper={effectiveIsHelper} />
+        {previewHelper && (
+          <PreviewBanner onExit={() => setPreview(false)} lang="zh" />
+        )}
+        <header className="sticky top-0 z-30 border-b border-teal-100/80 bg-white/90 backdrop-blur">
+          <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-700 text-lg text-white">
+              🏠
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-base font-bold text-slate-900">
+                Hola-Kakak
+              </h1>
+              <p className="truncate text-xs text-slate-500">
+                {household?.name ||
+                  (effectiveIsHelper
+                    ? 'Manajer Rumah Tangga'
+                    : 'Hola-Kakak · 雙語家務')}
+              </p>
+            </div>
+            <NotificationBell />
           </div>
-          <div>
-            <h1 className="text-base font-bold text-slate-900">
-              Hola-Kakak
-            </h1>
-            <p className="text-xs text-slate-500">
-              {household?.name ||
-                (effectiveIsHelper
-                  ? 'Manajer Rumah Tangga'
-                  : 'Hola-Kakak · 雙語家務')}
-            </p>
-          </div>
-        </div>
-      </header>
-      <main className="mx-auto max-w-3xl px-4 py-5">{children}</main>
-      <Nav isHelper={effectiveIsHelper} />
-    </div>
+        </header>
+        <main className="mx-auto max-w-3xl px-4 py-5">{children}</main>
+        <Nav isHelper={effectiveIsHelper} />
+        <NotificationCentre />
+        <NotificationToast />
+        <NotificationDeepLink />
+      </div>
+    </NotificationsProvider>
   )
 }
 

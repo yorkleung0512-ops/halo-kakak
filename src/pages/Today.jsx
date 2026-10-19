@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Mic, MicOff, Plus } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useHousehold } from '../lib/household'
@@ -56,6 +57,8 @@ export default function Today() {
   const [pendingAction, setPendingAction] = useState(null)
   const [pendingCount, setPendingCount] = useState(0)
   const [editTask, setEditTask] = useState(null)
+  const [searchParams] = useSearchParams()
+  const deepTaskId = searchParams.get('task')
 
   useEffect(() => {
     if (!showAdd || !household?.id) return
@@ -97,6 +100,12 @@ export default function Today() {
   useEffect(() => {
     loadTasks()
   }, [loadTasks])
+
+  useEffect(() => {
+    if (!deepTaskId || loading) return
+    const el = document.getElementById(`task-${deepTaskId}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [deepTaskId, loading, tasks])
 
   useEffect(() => {
     setPendingCount(peekQueue().length)
@@ -464,7 +473,7 @@ export default function Today() {
               </h2>
               <TaskCard
                 task={nextTask}
-                highlight
+                highlight={deepTaskId ? deepTaskId === nextTask.id : true}
                 isHelperView={effectiveIsHelper}
                 canAct={effectiveIsHelper && !previewHelper}
                 readOnly={previewHelper}
@@ -485,6 +494,7 @@ export default function Today() {
                   <TaskCard
                     key={t.id}
                     task={t}
+                    highlight={deepTaskId === t.id}
                     isHelperView={false}
                     canAct={false}
                     canEdit={canEditTasks && !previewHelper}
@@ -508,6 +518,7 @@ export default function Today() {
                   <TaskCard
                     key={t.id}
                     task={t}
+                    highlight={deepTaskId === t.id}
                     isHelperView={effectiveIsHelper}
                     canAct={effectiveIsHelper && !previewHelper}
                     readOnly={previewHelper}
@@ -552,6 +563,7 @@ export default function Today() {
                 <TaskCard
                   key={t.id}
                   task={t}
+                    highlight={deepTaskId === t.id}
                   isHelperView={effectiveIsHelper}
                   canAct={effectiveIsHelper && !previewHelper}
                   readOnly={previewHelper}
