@@ -16,6 +16,8 @@ import { enqueueMutation, flushQueue, peekQueue } from '../lib/offlineQueue'
 import TaskCard from '../components/TaskCard'
 import Modal from '../components/Modal'
 import Toast from '../components/Toast'
+import AddTaskFlow from '../components/presets/AddTaskFlow'
+import QuickAddSection from '../components/presets/QuickAddSection'
 
 export default function Today() {
   const { user } = useAuth()
@@ -407,6 +409,16 @@ export default function Today() {
         </div>
       )}
 
+      {canEditTasks && !previewHelper && household?.id && (
+        <QuickAddSection
+          householdId={household.id}
+          userId={user.id}
+          ensureToday={ensureToday}
+          onCreated={loadTasks}
+          onToast={showToast}
+        />
+      )}
+
       {loading ? (
         <p className="text-center text-slate-500">…</p>
       ) : (
@@ -520,12 +532,16 @@ export default function Today() {
         </>
       )}
 
-      <Modal
+      <AddTaskFlow
         open={showAdd}
         onClose={() => setShowAdd(false)}
-        title="新增任務"
-        labelledBy="add-task-title"
-      >
+        householdId={household?.id}
+        userId={user?.id}
+        glossary={glossary}
+        ensureToday={ensureToday}
+        onCreated={loadTasks}
+        onToast={showToast}
+        customForm={(
         <form onSubmit={onAddSubmit} className="space-y-3">
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
             <p lang="zh-Hant">{TRANSLATION_PRIVACY_NOTICE.zh}</p>
@@ -665,7 +681,8 @@ export default function Today() {
             </button>
           </div>
         </form>
-      </Modal>
+        )}
+      />
 
       <Modal
         open={commentOpen}

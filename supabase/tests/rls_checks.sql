@@ -18,3 +18,15 @@
 
 -- Automated helper via SQL (requires test helpers):
 -- See scripts/rls-smoke.mjs for JWT-based checks against the REST API.
+
+-- ---------------------------------------------------------------------------
+-- Task preset library RLS (13–19)
+-- ---------------------------------------------------------------------------
+-- 13. Authenticated can select active system presets
+-- 14. Authenticated cannot insert/update/delete system presets
+-- 15. Employer can insert household preset for own household
+-- 16. Helper cannot insert/update/delete household presets
+-- 17. Employer cannot read another household's presets
+-- 18. Favourites: employer insert/delete; helper select only
+-- 19. Usage: employer insert; members select; no cross-household
+-- See scripts/rls-smoke.mjs for REST checks when tokens available.

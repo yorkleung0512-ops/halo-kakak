@@ -109,7 +109,42 @@ ok('11. Helper cannot change household_id', true, 'manual / trigger')
 
 printSummary()
 
-function printSummary() {
+function 
+// --- Task preset library ---
+{
+  const { data, error } = await anonClient.from('task_presets').select('id').limit(1)
+  ok('13p. Anonymous denied task_presets', (data || []).length === 0, error?.message || '')
+}
+if (employer) {
+  const { data, error } = await employer.from('task_presets').select('id,source').eq('source', 'system').limit(5)
+  ok('14p. Employer reads system presets', !error && (data || []).length >= 0, error?.message || `n=${(data||[]).length}`)
+  const { error: insErr } = await employer.from('task_presets').insert({
+    source: 'system',
+    title_zh: 'should-fail',
+    title_id: 'should-fail',
+    category_id: '00000000-0000-0000-0000-000000000000',
+    system_key: 'hack_attempt',
+  })
+  ok('15p. Employer cannot insert system preset', !!insErr, insErr?.message || 'unexpected success')
+}
+if (helper) {
+  const { data: hh } = await helper.from('households').select('id').limit(1)
+  const hid = hh?.[0]?.id
+  if (hid) {
+    const { error } = await helper.from('task_presets').insert({
+      source: 'household',
+      household_id: hid,
+      title_zh: 'helper-should-fail',
+      title_id: 'fail',
+      category_id: '00000000-0000-0000-0000-000000000000',
+    })
+    ok('16p. Helper cannot insert household preset', !!error, error?.message || 'unexpected success')
+  } else {
+    ok('16p. Helper cannot insert household preset', true, 'skipped — no household')
+  }
+}
+
+printSummary() {
   const failed = results.filter((r) => !r.pass)
   console.log(`\n${results.length - failed.length}/${results.length} passed`)
   if (failed.length) process.exitCode = 1

@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth'
 import { useHousehold } from '../lib/household'
 import { supabase } from '../lib/supabase'
 import { useState } from 'react'
+import HouseholdPresetsManager from '../components/presets/HouseholdPresetsManager'
 
 export default function Settings() {
   const { user, profile, signOut, updateProfile } = useAuth()
@@ -153,6 +154,14 @@ export default function Settings() {
           </button>
         )}
       </section>
+
+      {!effectiveIsHelper && household?.id && (
+        <HouseholdPresetsManager
+          householdId={household.id}
+          userId={user.id}
+          onToast={setMsg}
+        />
+      )}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2">
         <h2 className="font-bold">

@@ -54,3 +54,12 @@ drop function if exists public.create_household(text, text);
 - Display codes never grant access.
 - Service role key must never appear in frontend.
 - Legacy `household_sync` still has open anon RLS until cutover migration.
+
+
+## Task preset library (2026-10-19)
+
+4. `supabase/migrations/20261019160000_task_presets.sql`
+5. `supabase/migrations/20261019160100_task_presets_rls.sql`
+6. `supabase/migrations/20261019160200_task_presets_seed.sql`
+
+See `docs/TASK_PRESETS.md` for UX, deploy, rollback, and acceptance checklist.
