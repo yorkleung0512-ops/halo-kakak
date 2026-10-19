@@ -8,7 +8,11 @@ import {
   filterPresets,
   recurrenceLabel,
   buildQuickAddList,
+  EDIT_SCOPES,
+  ISO_WEEKDAYS,
+  WEEKDAY_LABELS,
 } from '../src/lib/presetUtils.js'
+import { mapBatchError } from '../src/lib/batchErrors.js'
 
 let failed = 0
 function assert(name, cond, detail = '') {
@@ -22,8 +26,17 @@ function assert(name, cond, detail = '') {
 assert('map daily', mapRecurrence({ rule: 'daily' }).recurrence_rule === 'daily')
 assert('map none', mapRecurrence({ rule: 'none' }).recurrence_rule === 'none')
 assert(
-  'map biweekly→weekly',
-  mapRecurrence({ rule: 'biweekly' }).recurrence_rule === 'weekly',
+  'map biweekly keeps biweekly',
+  mapRecurrence({ rule: 'biweekly' }).recurrence_rule === 'biweekly',
+)
+assert(
+  'map biweekly interval >=2',
+  mapRecurrence({ rule: 'biweekly', interval: 1 }).recurrence_interval >= 2,
+)
+assert(
+  'map custom interval',
+  mapRecurrence({ rule: 'custom', interval: 3 }).recurrence_rule === 'custom' &&
+    mapRecurrence({ rule: 'custom', interval: 3 }).recurrence_interval === 3,
 )
 assert(
   'map selected_weekdays',
@@ -31,6 +44,11 @@ assert(
     .recurrence_rule === 'weekly' &&
     mapRecurrence({ rule: 'selected_weekdays', weekdays: [1, 3, 5] })
       .recurrence_weekdays.length === 3,
+)
+assert(
+  'map weekdays ISO 1-7 only',
+  mapRecurrence({ rule: 'weekly', weekdays: [0, 1, 8, 7] }).recurrence_weekdays
+    .join(',') === '1,7',
 )
 assert('map null→none', mapRecurrence(null).recurrence_rule === 'none')
 
@@ -79,7 +97,32 @@ assert(
     (p) => p.source === 'household',
   ),
 )
-assert('label daily', recurrenceLabel({ rule: 'daily' }) === '每日')
+assert('label daily zh', recurrenceLabel({ rule: 'daily' }) === '每日')
+assert(
+  'label biweekly id',
+  recurrenceLabel({ rule: 'biweekly' }, 'id').includes('minggu'),
+)
+assert(
+  'label weekly with days',
+  recurrenceLabel({ rule: 'weekly', weekdays: [1, 7] }, 'zh').includes('一'),
+)
+
+assert('ISO weekdays 1-7', ISO_WEEKDAYS.join(',') === '1,2,3,4,5,6,7')
+assert('weekday zh Sun', WEEKDAY_LABELS.zh[7] === '日')
+assert('weekday id Mon', WEEKDAY_LABELS.id[1] === 'Senin')
+
+assert(
+  'edit scopes 3',
+  EDIT_SCOPES.length === 3 &&
+    EDIT_SCOPES.map((s) => s.value).join(',') ===
+      'this_only,this_and_future,entire_series',
+)
+assert(
+  'edit scope zh labels',
+  EDIT_SCOPES[0].zh.includes('今次') &&
+    EDIT_SCOPES[2].zh.includes('整個') &&
+    EDIT_SCOPES[1].id.length > 0,
+)
 
 const qa = buildQuickAddList(
   {
@@ -94,17 +137,29 @@ const qa = buildQuickAddList(
       suggested_time: '10:00',
     })),
   },
-  { limit: 16, max: 20 },
+  { limit: 6, max: 40 },
 )
-assert('quick add size 10-20', qa.length >= 10 && qa.length <= 20, `n=${qa.length}`)
+assert('quick add visible max 6', qa.length === 6, `n=${qa.length}`)
 assert('quick add fav first', qa[0].id === 'f1')
-assert('quick add cap 20', buildQuickAddList({ all: Array.from({length:40},(_,i)=>({id:`x${i}`,source:'system',category_key:'pets',sort_order:i})) }, { limit: 16, max: 20 }).length <= 20)
+assert(
+  'quick add pool larger',
+  buildQuickAddList(
+    {
+      all: Array.from({ length: 40 }, (_, i) => ({
+        id: `x${i}`,
+        source: 'system',
+        category_key: 'pets',
+        sort_order: i,
+      })),
+    },
+    { limit: 20, max: 40 },
+  ).length === 20,
+)
 
-
-
-import { mapBatchError } from '../src/lib/batchErrors.js'
 assert('mapBatchError INVALID_ASSIGNEE', mapBatchError({ message: 'INVALID_ASSIGNEE' }).includes('指派'))
 assert('mapBatchError BATCH_LIMIT', mapBatchError({ message: 'BATCH_LIMIT_EXCEEDED' }).includes('20'))
+assert('mapBatchError INVALID_SCOPE', mapBatchError({ message: 'INVALID_SCOPE' }).includes('範圍'))
+assert('mapBatchError INVALID_RECURRENCE', mapBatchError({ message: 'INVALID_RECURRENCE' }).includes('重複'))
 assert('mapBatchError fallback', mapBatchError({ message: 'weird' }) === 'weird')
 
 console.log(failed ? `\n${failed} failed` : '\nAll passed')

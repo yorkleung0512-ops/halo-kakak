@@ -26,14 +26,19 @@ function buildDraft(preset, helpers) {
   const time = (preset.suggested_time || '').toString().slice(0, 5) || '09:00'
   const defaultAssignee =
     helpers.length === 1 ? helpers[0].user_id : null
+  const date = todayHK()
   return {
     preset,
     mode: suggestedType === 'adhoc' ? 'adhoc' : 'scheduled',
-    date: todayHK(),
+    date,
+    start_date: date,
+    end_date: null,
+    neverEnds: true,
     time,
     recurrence_rule:
       suggestedType === 'adhoc' ? 'none' : mapped.recurrence_rule || 'daily',
     recurrence_weekdays: mapped.recurrence_weekdays,
+    recurrence_interval: mapped.recurrence_interval || 1,
     priority: preset.suggested_priority || 'normal',
     title_zh: preset.title_zh,
     title_id: preset.title_id,

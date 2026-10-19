@@ -23,6 +23,7 @@ export default function QuickAddConfirm({
   const [busy, setBusy] = useState(false)
   const [helpers, setHelpers] = useState([])
   const [assignedTo, setAssignedTo] = useState(null)
+  const [taskDate, setTaskDate] = useState(todayHK())
   const idempotencyKeyRef = useRef(null)
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export default function QuickAddConfirm({
     idempotencyKeyRef.current = crypto.randomUUID()
     setMode('adhoc')
     setBusy(false)
+    setTaskDate(todayHK())
     fetchActiveHelpers(householdId).then((list) => {
       setHelpers(list)
       setAssignedTo(list.length === 1 ? list[0].user_id : null)
@@ -52,11 +54,13 @@ export default function QuickAddConfirm({
           preset,
           draft: {
             mode,
-            date: todayHK(),
+            date: taskDate || todayHK(),
+            start_date: taskDate || todayHK(),
             time,
             recurrence_rule:
               mode === 'adhoc' ? 'none' : mapped.recurrence_rule || 'daily',
             recurrence_weekdays: mapped.recurrence_weekdays,
+            recurrence_interval: mapped.recurrence_interval || 1,
             priority: preset.suggested_priority || 'normal',
             title_zh: preset.title_zh,
             title_id: preset.title_id,
@@ -103,6 +107,9 @@ export default function QuickAddConfirm({
           }`}
         >
           今日一次
+          <span lang="id" className="block text-[10px] font-normal">
+            Sekali hari ini
+          </span>
         </button>
         <button
           type="button"
@@ -115,7 +122,23 @@ export default function QuickAddConfirm({
           }`}
         >
           設為固定工作
+          <span lang="id" className="block text-[10px] font-normal">
+            Jadwal tetap
+          </span>
         </button>
+      </div>
+      <div className="mb-3">
+        <label className="text-xs" htmlFor="quick-date" lang="zh-Hant">
+          日期 / Tanggal
+        </label>
+        <input
+          id="quick-date"
+          type="date"
+          value={taskDate}
+          disabled={busy}
+          onChange={(e) => setTaskDate(e.target.value)}
+          className="mt-1 w-full min-h-11 rounded-xl border border-slate-200 px-2"
+        />
       </div>
       <div className="mb-3">
         <AssigneePicker

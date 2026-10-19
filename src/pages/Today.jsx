@@ -446,6 +446,7 @@ export default function Today() {
           ensureToday={ensureToday}
           onCreated={loadTasks}
           onToast={showToast}
+          onBrowseAll={() => setShowAdd(true)}
         />
       )}
 

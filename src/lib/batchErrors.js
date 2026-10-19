@@ -3,6 +3,7 @@ const BATCH_ERROR_ZH = {
   INVALID_ASSIGNEE: '指派對象無效（只可以指派本家庭活躍姐姐）',
   INVALID_PRESET: '範本無效或已封存',
   INVALID_RECURRENCE: '重複安排設定無效',
+  INVALID_SCOPE: '修改範圍無效',
   DUPLICATE_REQUEST: '重複提交：請稍候或重新開啟預覽',
   PAYLOAD_MISMATCH: '重複提交但內容唔同，請重新確認',
   BATCH_LIMIT_EXCEEDED: '一次最多建立 20 項任務',

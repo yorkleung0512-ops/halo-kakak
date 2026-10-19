@@ -10,6 +10,8 @@ import {
 } from '../lib/constants'
 import { fetchActiveHelpers } from '../lib/assignees'
 import AssigneePicker from './presets/AssigneePicker'
+import RecurrenceFields from './presets/RecurrenceFields'
+import { EDIT_SCOPES, mapBatchError } from '../lib/presets'
 
 function dueToTime(dueAt) {
   if (!dueAt) return ''
@@ -30,7 +32,8 @@ function dueToTime(dueAt) {
 }
 
 /**
- * Employer edit modal for a task_occurrence (and optional linked task_template).
+ * Employer edit modal — scoped edit for recurring (只修改今次 / 今次及之後 / 整個排程).
+ * Preserves completed history; audits via task_events (RPC).
  */
 export default function EditTaskModal({
   open,
@@ -54,9 +57,17 @@ export default function EditTaskModal({
   const [priority, setPriority] = useState('normal')
   const [approved, setApproved] = useState(false)
   const [zhEdited, setZhEdited] = useState(false)
-  const [recurrence, setRecurrence] = useState('daily')
-  const [alsoTemplate, setAlsoTemplate] = useState(true)
+  const [scope, setScope] = useState('this_only')
   const [templateMeta, setTemplateMeta] = useState(null)
+  const [recurrence, setRecurrence] = useState({
+    recurrence_rule: 'daily',
+    recurrence_weekdays: null,
+    recurrence_interval: 1,
+    start_date: '',
+    end_date: null,
+    neverEnds: true,
+  })
+  const [paused, setPaused] = useState(false)
   const [translating, setTranslating] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -74,18 +85,29 @@ export default function EditTaskModal({
     setPriority(task.priority || 'normal')
     setApproved(!!task.translation_approved)
     setZhEdited(false)
-    setAlsoTemplate(true)
+    setScope('this_only')
     setTemplateMeta(null)
+    setPaused(false)
     if (task.template_id) {
       supabase
         .from('task_templates')
-        .select('id, recurrence_rule, default_time, title_zh')
+        .select(
+          'id, recurrence_rule, recurrence_weekdays, recurrence_interval, default_time, title_zh, start_date, end_date, paused_at, is_active',
+        )
         .eq('id', task.template_id)
         .maybeSingle()
         .then(({ data }) => {
           if (data) {
             setTemplateMeta(data)
-            setRecurrence(data.recurrence_rule || 'daily')
+            setPaused(!!data.paused_at)
+            setRecurrence({
+              recurrence_rule: data.recurrence_rule || 'daily',
+              recurrence_weekdays: data.recurrence_weekdays,
+              recurrence_interval: data.recurrence_interval || 1,
+              start_date: data.start_date || task.task_date || todayHK(),
+              end_date: data.end_date,
+              neverEnds: !data.end_date,
+            })
           }
         })
     }
@@ -94,6 +116,7 @@ export default function EditTaskModal({
   if (!task) return null
 
   const risk = isHighRisk(`${titleZh} ${instrZh}`)
+  const isRecurring = !!task.template_id && !!templateMeta
 
   async function doTranslate() {
     if (!titleZh.trim()) return
@@ -117,6 +140,21 @@ export default function EditTaskModal({
     }
   }
 
+  async function togglePause() {
+    if (!task.template_id) return
+    const next = !paused
+    const { error } = await supabase.rpc('set_task_template_paused', {
+      p_template_id: task.template_id,
+      p_paused: next,
+    })
+    if (error) {
+      onToast?.(mapBatchError(error) || error.message)
+      return
+    }
+    setPaused(next)
+    onToast?.(next ? '已暫停排程' : '已恢復排程')
+  }
+
   async function save() {
     if (!titleZh.trim()) return
     setSaving(true)
@@ -131,51 +169,57 @@ export default function EditTaskModal({
       assigned_to: assignedTo,
       priority,
       due_at: dueAt,
+      due_time: time || null,
       translation_approved: approved,
     }
+
+    if (
+      updateSchedule &&
+      isRecurring &&
+      (scope === 'this_and_future' || scope === 'entire_series')
+    ) {
+      patch.recurrence_rule = recurrence.recurrence_rule
+      patch.recurrence_interval = recurrence.recurrence_interval || 1
+      if (recurrence.recurrence_weekdays?.length) {
+        patch.recurrence_weekdays = recurrence.recurrence_weekdays
+      }
+      patch.end_date = recurrence.neverEnds ? null : recurrence.end_date || null
+    }
+
+    if (isRecurring) {
+      const { data, error } = await supabase.rpc('edit_task_occurrence_scoped', {
+        p_id: task.id,
+        p_expected_version: task.version,
+        p_scope: scope,
+        p_patch: patch,
+      })
+      setSaving(false)
+      if (error) {
+        onToast?.(mapBatchError(error) || error.message)
+        return
+      }
+      onToast?.(
+        scope === 'this_only'
+          ? '已更新今次'
+          : scope === 'this_and_future'
+            ? `已更新今次及之後（${data?.future_updated || 0}）`
+            : `已更新整個排程（${data?.future_updated || 0}）`,
+      )
+      onSaved?.(data?.occurrence || data)
+      onClose?.()
+      return
+    }
+
     const { data, error } = await supabase.rpc('update_task_occurrence', {
       p_id: task.id,
       p_expected_version: task.version,
       p_patch: patch,
     })
+    setSaving(false)
     if (error) {
-      setSaving(false)
       onToast?.(error.message)
       return
     }
-
-    if (
-      updateSchedule &&
-      alsoTemplate &&
-      task.template_id &&
-      templateMeta
-    ) {
-      const { error: tErr } = await supabase
-        .from('task_templates')
-        .update({
-          title_zh: titleZh.trim(),
-          title_id: titleId.trim(),
-          instructions_zh: instrZh,
-          instructions_id: instrId,
-          additional_instructions_zh: addZh,
-          additional_instructions_id: addId,
-          assigned_to: assignedTo,
-          priority,
-          default_time: time || null,
-          recurrence_rule: recurrence,
-          translation_approved: approved,
-        })
-        .eq('id', task.template_id)
-      if (tErr) {
-        onToast?.(`今日任務已更新，但排程更新失敗：${tErr.message}`)
-        setSaving(false)
-        onSaved?.(data)
-        onClose?.()
-        return
-      }
-    }
-
-    setSaving(false)
     onToast?.('已儲存')
     onSaved?.(data)
     onClose?.()
@@ -339,34 +383,66 @@ export default function EditTaskModal({
           </div>
         </div>
 
-        {task.template_id && templateMeta && (
+        {isRecurring && (
           <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <label className="flex min-h-11 items-center gap-2 text-sm font-medium">
-              <input
-                type="checkbox"
-                checked={alsoTemplate}
-                onChange={(e) => setAlsoTemplate(e.target.checked)}
-              />
-              同時更新固定排程（之後日子）
-            </label>
-            {alsoTemplate && (
-              <div>
-                <label className="text-xs" htmlFor="edit-rec">
-                  重複安排
-                </label>
-                <select
-                  id="edit-rec"
-                  value={recurrence}
-                  onChange={(e) => setRecurrence(e.target.value)}
-                  className="mt-1 w-full min-h-11 rounded-xl border border-slate-200 px-2"
+            <p lang="zh-Hant" className="text-sm font-bold text-slate-800">
+              修改範圍
+              <span lang="id" className="ml-1 font-normal text-slate-500">
+                / Cakupan suntingan
+              </span>
+            </p>
+            <div className="space-y-1">
+              {EDIT_SCOPES.map((s) => (
+                <label
+                  key={s.value}
+                  className={`flex min-h-11 cursor-pointer items-start gap-2 rounded-xl border px-3 py-2 text-sm ${
+                    scope === s.value
+                      ? 'border-teal-600 bg-teal-50'
+                      : 'border-slate-200 bg-white'
+                  }`}
                 >
-                  <option value="daily">每日</option>
-                  <option value="weekdays">平日</option>
-                  <option value="weekly">每週</option>
-                  <option value="monthly">每月</option>
-                </select>
-              </div>
+                  <input
+                    type="radio"
+                    name="edit-scope"
+                    value={s.value}
+                    checked={scope === s.value}
+                    onChange={() => setScope(s.value)}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span lang="zh-Hant" className="font-semibold">
+                      {s.zh}
+                    </span>
+                    <span lang="id" className="mt-0.5 block text-xs text-slate-600">
+                      {s.id}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500" lang="zh-Hant">
+              已完成嘅日子唔會被改動；歷史會保留，並寫入 task_events。
+            </p>
+
+            {(scope === 'this_and_future' || scope === 'entire_series') && (
+              <RecurrenceFields
+                idPrefix="edit-rec"
+                {...recurrence}
+                onChange={(p) => setRecurrence((r) => ({ ...r, ...p }))}
+              />
             )}
+
+            <button
+              type="button"
+              onClick={togglePause}
+              className={`min-h-11 w-full rounded-xl border text-sm font-semibold ${
+                paused
+                  ? 'border-teal-600 bg-teal-50 text-teal-900'
+                  : 'border-amber-300 bg-amber-50 text-amber-950'
+              }`}
+            >
+              {paused ? '恢復排程 / Lanjutkan' : '暫停排程 / Jeda jadwal'}
+            </button>
           </div>
         )}
 

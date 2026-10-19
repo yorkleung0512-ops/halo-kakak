@@ -19,6 +19,10 @@ export {
   buildQuickAddList,
   scoreQuickAddPreset,
   hourHK,
+  ISO_WEEKDAYS,
+  WEEKDAY_LABELS,
+  RECURRENCE_RULES,
+  EDIT_SCOPES,
 } from './presetUtils'
 
 const SYSTEM_CACHE_KEY = 'halo-kakak:system-presets:v1'
@@ -224,6 +228,13 @@ function draftToPayload(draft, preset, index) {
   if (mode === 'scheduled') {
     payload.recurrence_rule = rule === 'none' ? 'daily' : rule
     if (weekdays?.length) payload.recurrence_weekdays = weekdays
+    const interval = Number(
+      draft.recurrence_interval ?? mapped.recurrence_interval ?? 1,
+    )
+    payload.recurrence_interval = Math.min(365, Math.max(1, interval || 1))
+    if (payload.recurrence_rule === 'biweekly') {
+      payload.recurrence_interval = Math.max(payload.recurrence_interval, 2)
+    }
   }
   return payload
 }

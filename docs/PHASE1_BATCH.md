@@ -47,4 +47,4 @@
 
 ## STOP
 
-Phase 2 (scheduling expansion / full preview polish) and Phase 3 (template management UX) are **not** started — awaiting approval.
+Phase 2 is documented in `PHASE2_SCHEDULING.md`. Phase 3 is **not** started — awaiting approval.

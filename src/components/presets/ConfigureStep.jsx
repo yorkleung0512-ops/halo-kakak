@@ -1,5 +1,7 @@
 import { todayHK } from '../../lib/constants'
 import AssigneePicker from './AssigneePicker'
+import RecurrenceFields from './RecurrenceFields'
+import BulkApplyBar from './BulkApplyBar'
 
 export default function ConfigureStep({
   drafts,
@@ -8,11 +10,25 @@ export default function ConfigureStep({
   onContinue,
   helpers = [],
 }) {
+  function applyBulk(patch) {
+    drafts.forEach((_, idx) => onChangeDraft(idx, patch))
+  }
+
   return (
     <div className="space-y-4">
       <p lang="zh-Hant" className="text-sm text-slate-600">
         為每個已選範本設定臨時或排程，建議值可改。
+        <span lang="id" className="mt-1 block text-xs text-slate-500">
+          Atur sekali atau jadwal untuk setiap templat.
+        </span>
       </p>
+
+      <BulkApplyBar
+        draftsCount={drafts.length}
+        helpers={helpers}
+        onApply={applyBulk}
+      />
+
       {drafts.map((d, idx) => (
         <fieldset
           key={d.preset.id}
@@ -50,6 +66,8 @@ export default function ConfigureStep({
                   mode: 'scheduled',
                   recurrence_rule:
                     d.recurrence_rule === 'none' ? 'daily' : d.recurrence_rule,
+                  start_date: d.start_date || d.date || todayHK(),
+                  neverEnds: d.neverEnds !== false,
                 })
               }
               className={`min-h-11 rounded-xl border text-sm font-semibold ${
@@ -59,19 +77,27 @@ export default function ConfigureStep({
               }`}
             >
               排程任務
+              <span lang="id" className="block text-[10px] font-normal">
+                Jadwal tetap
+              </span>
             </button>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs" htmlFor={`date-${idx}`}>
-                選擇日期
+                {d.mode === 'scheduled' ? '任務日期（今日）' : '選擇日期'}
               </label>
               <input
                 id={`date-${idx}`}
                 type="date"
                 value={d.date || todayHK()}
-                onChange={(e) => onChangeDraft(idx, { date: e.target.value })}
+                onChange={(e) =>
+                  onChangeDraft(idx, {
+                    date: e.target.value,
+                    start_date: d.start_date || e.target.value,
+                  })
+                }
                 className="mt-1 w-full min-h-11 rounded-xl border border-slate-200 px-2"
               />
             </div>
@@ -90,24 +116,16 @@ export default function ConfigureStep({
           </div>
 
           {d.mode === 'scheduled' && (
-            <div>
-              <label className="text-xs" htmlFor={`rec-${idx}`}>
-                重複安排
-              </label>
-              <select
-                id={`rec-${idx}`}
-                value={d.recurrence_rule || 'daily'}
-                onChange={(e) =>
-                  onChangeDraft(idx, { recurrence_rule: e.target.value })
-                }
-                className="mt-1 w-full min-h-11 rounded-xl border border-slate-200 px-2"
-              >
-                <option value="daily">每日</option>
-                <option value="weekdays">平日</option>
-                <option value="weekly">每週</option>
-                <option value="monthly">每月</option>
-              </select>
-            </div>
+            <RecurrenceFields
+              idPrefix={`rec-${idx}`}
+              recurrence_rule={d.recurrence_rule || 'daily'}
+              recurrence_weekdays={d.recurrence_weekdays}
+              recurrence_interval={d.recurrence_interval || 1}
+              start_date={d.start_date || d.date || todayHK()}
+              end_date={d.end_date}
+              neverEnds={d.neverEnds !== false}
+              onChange={(p) => onChangeDraft(idx, p)}
+            />
           )}
 
           <div>
