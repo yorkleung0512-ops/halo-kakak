@@ -107,9 +107,7 @@ ok('11. Helper cannot change household_id', true, 'manual / trigger')
   ok('12. Users cannot list all invites globally', true, `scoped count=${(data||[]).length}`)
 }
 
-printSummary()
 
-function 
 // --- Task preset library ---
 {
   const { data, error } = await anonClient.from('task_presets').select('id').limit(1)
@@ -144,7 +142,9 @@ if (helper) {
   }
 }
 
-printSummary() {
+printSummary()
+
+function printSummary() {
   const failed = results.filter((r) => !r.pass)
   console.log(`\n${results.length - failed.length}/${results.length} passed`)
   if (failed.length) process.exitCode = 1
