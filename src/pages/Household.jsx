@@ -60,6 +60,22 @@ export default function HouseholdPage() {
     load()
   }, [load])
 
+  // OFF-1: refresh member list on reconnect without full page reload
+  useEffect(() => {
+    function onOnline() {
+      load()
+    }
+    function onVis() {
+      if (document.visibilityState === 'visible' && navigator.onLine) load()
+    }
+    window.addEventListener('online', onOnline)
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [load])
+
   async function createInvite() {
     const { data, error } = await supabase.rpc('create_household_invite', {
       p_household_id: household.id,
@@ -105,21 +121,6 @@ export default function HouseholdPage() {
     if (error) setToast(error.message)
     else {
       setToast('已移除')
-      load()
-    }
-  }
-
-  async function changeMemberRole(uid, newRole) {
-    if (!canManageMembers) return
-    if (newRole !== 'employer' && newRole !== 'helper') return
-    const { error } = await supabase.rpc('change_household_member_role', {
-      p_household_id: household.id,
-      p_member_user_id: uid,
-      p_new_role: newRole,
-    })
-    if (error) setToast(error.message)
-    else {
-      setToast(newRole === 'employer' ? '已改為僱主' : '已改為姐姐')
       load()
     }
   }
@@ -270,17 +271,7 @@ export default function HouseholdPage() {
               </div>
               {canManageMembers && m.user_id !== user.id && (
                 <div className="flex items-center gap-1">
-                  {(m.role === 'helper' || m.role === 'employer') && (
-                    <select
-                      aria-label="更改角色"
-                      value={m.role}
-                      onChange={(e) => changeMemberRole(m.user_id, e.target.value)}
-                      className="min-h-11 rounded-xl border border-slate-200 px-2 text-xs"
-                    >
-                      <option value="helper">姐姐</option>
-                      <option value="employer">僱主</option>
-                    </select>
-                  )}
+                  {/* Beta: role-change select hidden (decision H). Server RPC unchanged. */}
                   <button
                     type="button"
                     onClick={() => removeMember(m.user_id)}

@@ -1,17 +1,40 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { useAuth } from '../lib/auth'
 import { useHousehold } from '../lib/household'
 import { supabase } from '../lib/supabase'
 import { STATUS_LABELS, formatTimeHK } from '../lib/constants'
+import TaskDetailSheet from '../components/today/TaskDetailSheet'
+import { useTaskOccurrenceDetail } from '../hooks/useTaskOccurrenceDetail'
 
 export default function History() {
-  const { household, effectiveIsHelper } = useHousehold()
+  const { user } = useAuth()
+  const {
+    household,
+    effectiveIsHelper,
+    canEditTasks,
+    previewHelper,
+  } = useHousehold()
   const [rows, setRows] = useState([])
+  const [searchParams] = useSearchParams()
+  const deepTaskId = searchParams.get('task')
+  const {
+    detailTask,
+    detailTemplate,
+    detailError,
+    detailLoading,
+    openTaskById,
+    openTaskRow,
+    closeDetail,
+  } = useTaskOccurrenceDetail({ householdId: household?.id })
 
   useEffect(() => {
     if (!household?.id) return
     supabase
       .from('task_occurrences')
-      .select('id, title_zh, title_id, status, task_date, completed_at, updated_at')
+      .select(
+        'id, title_zh, title_id, status, task_date, completed_at, updated_at, household_id, instructions_zh, instructions_id, additional_instructions_zh, additional_instructions_id, due_at, template_id, assigned_to, created_by, priority, version',
+      )
       .eq('household_id', household.id)
       .is('deleted_at', null)
       .in('status', ['completed', 'cancelled', 'cannot_complete'])
@@ -19,6 +42,11 @@ export default function History() {
       .limit(50)
       .then(({ data }) => setRows(data || []))
   }, [household?.id])
+
+  useEffect(() => {
+    if (!deepTaskId || !household?.id) return
+    openTaskById(deepTaskId)
+  }, [deepTaskId, household?.id, openTaskById])
 
   return (
     <div className="space-y-4">
@@ -28,27 +56,40 @@ export default function History() {
       >
         {effectiveIsHelper ? 'Riwayat' : '記錄'}
       </h1>
+      {detailError && (
+        <p role="status" className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {effectiveIsHelper ? 'Tugas tidak tersedia' : '搵唔到呢個任務'}
+        </p>
+      )}
+      {detailLoading && !detailTask && (
+        <p className="text-sm text-slate-500">
+          {effectiveIsHelper ? 'Memuat…' : '載入中…'}
+        </p>
+      )}
       <ul className="space-y-2">
         {rows.map((t) => {
           const meta = STATUS_LABELS[t.status] || STATUS_LABELS.pending
           return (
-            <li
-              key={t.id}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3"
-            >
-              <p className="text-xs text-slate-400">{t.task_date}</p>
-              <p lang="zh-Hant" className="font-medium">
-                {t.title_zh}
-              </p>
-              {t.title_id && (
-                <p lang="id" className="text-sm text-slate-600">
-                  {t.title_id}
+            <li key={t.id}>
+              <button
+                type="button"
+                onClick={() => openTaskRow(t)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left"
+              >
+                <p className="text-xs text-slate-400">{t.task_date}</p>
+                <p lang="zh-Hant" className="font-medium">
+                  {t.title_zh}
                 </p>
-              )}
-              <p className="mt-1 text-xs">
-                {meta.icon} {effectiveIsHelper ? meta.id : meta.zh}
-                {t.completed_at && ` · ${formatTimeHK(t.completed_at)}`}
-              </p>
+                {t.title_id && (
+                  <p lang="id" className="text-sm text-slate-600">
+                    {t.title_id}
+                  </p>
+                )}
+                <p className="mt-1 text-xs">
+                  {meta.icon} {effectiveIsHelper ? meta.id : meta.zh}
+                  {t.completed_at && ` · ${formatTimeHK(t.completed_at)}`}
+                </p>
+              </button>
             </li>
           )
         })}
@@ -58,6 +99,21 @@ export default function History() {
           </li>
         )}
       </ul>
+
+      <TaskDetailSheet
+        open={!!detailTask}
+        task={detailTask}
+        onClose={closeDetail}
+        isHelper={effectiveIsHelper}
+        canEdit={canEditTasks && !previewHelper && !effectiveIsHelper}
+        template={detailTemplate || undefined}
+        currentUserId={user?.id}
+        householdId={household?.id}
+        queueScope={{
+          userId: user?.id || null,
+          householdId: household?.id || null,
+        }}
+      />
     </div>
   )
 }

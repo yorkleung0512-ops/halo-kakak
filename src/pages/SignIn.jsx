@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import { storePendingDeepLink } from '../lib/taskDetailAccess'
 
 export default function SignIn() {
   const { signInWithMagicLink, authError } = useAuth()
   const [params] = useSearchParams()
+  const location = useLocation()
   const invite = params.get('invite')
   const [email, setEmail] = useState('')
   const [lang, setLang] = useState('zh')
@@ -16,6 +18,15 @@ export default function SignIn() {
     if (!email.trim()) return
     setBusy(true)
     try {
+      // Preserve intended deep link across magic-link round trip.
+      const from = location.state?.from
+      if (from?.pathname != null) {
+        const path = `${from.pathname || '/'}${from.search || ''}`
+        storePendingDeepLink(path === '/' ? '' : path)
+      } else if (params.get('task') || params.get('n')) {
+        storePendingDeepLink(`/${window.location.search}`)
+      }
+
       const redirectTo = invite
         ? `${window.location.origin}/invite/${invite}`
         : `${window.location.origin}/auth/callback`

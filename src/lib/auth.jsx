@@ -8,6 +8,10 @@ import {
 } from 'react'
 import { supabase } from './supabase'
 import { mapAuthError } from './constants'
+import {
+  clearSessionLocalState,
+  countPendingForUser,
+} from './sessionLocalState'
 
 const AuthContext = createContext(null)
 
@@ -80,10 +84,21 @@ export function AuthProvider({ children }) {
     return true
   }, [])
 
-  const signOut = useCallback(async () => {
+  /**
+   * @param {{ discardPending?: boolean }} [opts]
+   * discardPending defaults true — call sites should confirm when count > 0.
+   */
+  const signOut = useCallback(async (opts = {}) => {
+    const { discardPending = true } = opts
+    const uid = user?.id || null
+    clearSessionLocalState(uid, { discardQueue: discardPending })
     await supabase.auth.signOut()
     setProfile(null)
-  }, [])
+  }, [user?.id])
+
+  const pendingQueueCount = useCallback(() => {
+    return countPendingForUser(user?.id || null)
+  }, [user?.id])
 
   const updateProfile = useCallback(
     async (patch) => {
@@ -111,6 +126,7 @@ export function AuthProvider({ children }) {
       setAuthError,
       signInWithMagicLink,
       signOut,
+      pendingQueueCount,
       updateProfile,
       refreshProfile,
       isAuthenticated: !!session?.user,
@@ -123,6 +139,7 @@ export function AuthProvider({ children }) {
       authError,
       signInWithMagicLink,
       signOut,
+      pendingQueueCount,
       updateProfile,
       refreshProfile,
     ],

@@ -265,6 +265,7 @@ export default function TaskDetailSheet({
       <div className="space-y-3 text-sm">
         <div>
           <p className="text-xs font-semibold text-teal-700">
+            {task.task_date ? `${task.task_date} · ` : ''}
             {formatTimeHK(task.due_at) ||
               (isHelper ? 'Tanpa waktu' : '未定時間')}
             {' · '}

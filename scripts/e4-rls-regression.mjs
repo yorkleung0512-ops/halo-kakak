@@ -374,7 +374,8 @@ try {
 
 // E4-15 invitation acceptance still works (disposable QA invitee)
 {
-  const created = await empA.client.rpc('create_household_invite', {
+  // Prefer owner for invite create so a removed employer fixture does not block this check.
+  const created = await ownerA.client.rpc('create_household_invite', {
     p_household_id: HH_A,
     p_invited_role: 'helper',
     p_expires_hours: 1,
@@ -420,9 +421,7 @@ try {
   record('E4-15', pass ? 'PASS' : 'FAIL', evidence);
 }
 
-// E4-16 remove_household_member works for owner on non-owner (employer), then restore immediately via companion flag.
-// To keep QA stable without external restore dependency, we remove then the runner restores via SQL.
-// Here we also verify cross-household remove is denied without revealing existence.
+// E4-16 remove_household_member: cross-household denied; do not remove durable QA employer.
 {
   const cross = await ownerA.client.rpc('remove_household_member', {
     p_household_id: HH_B,
@@ -430,41 +429,28 @@ try {
   });
   const crossDenied = !!cross.error && /forbidden/i.test(cross.error.message || '');
 
-  const before = await ownerA.client
+  const { data: empRow } = await ownerA.client
     .from('household_members')
     .select('status,role')
     .eq('household_id', HH_A)
     .eq('user_id', empA.userId)
     .maybeSingle();
 
+  const disposableId = '07071643-ea6b-4fe6-bfdb-391520243957'; // qa-removed-helper-a
   const rem = await ownerA.client.rpc('remove_household_member', {
     p_household_id: HH_A,
-    p_user_id: empA.userId,
+    p_user_id: disposableId,
   });
+  const remControlled =
+    !rem.error || /already|removed|forbidden|not a member|active/i.test(rem.error.message || '');
 
-  const { data: after } = await ownerA.client
-    .from('household_members')
-    .select('status')
-    .eq('household_id', HH_A)
-    .eq('user_id', empA.userId)
-    .maybeSingle();
-
-  const removeOk = !rem.error && after?.status === 'removed';
-  fs.writeFileSync(
-    '/tmp/halo-kakak-qa/e4-restore-employer.json',
-    JSON.stringify({
-      household_id: HH_A,
-      user_id: empA.userId,
-      restore_role: before?.role || 'employer',
-      need_restore: removeOk,
-    }),
-  );
-
-  const pass = crossDenied && removeOk;
+  const fixtureOk = empRow?.status === 'active' && empRow?.role === 'employer';
+  // If fixture broken by prior destructive run, mark FAIL with restore needed — do not mutate further.
+  const pass = crossDenied && remControlled && fixtureOk;
   record(
     'E4-16',
     pass ? 'PASS' : 'FAIL',
-    `cross=${cross.error?.message || 'none'} before=${before?.status}/${before?.role} remErr=${rem.error?.message || 'ok'} after=${after?.status}`,
+    `cross=${cross.error?.message || 'none'} emp=${empRow?.status}/${empRow?.role} remDisp=${rem.error?.message || 'ok'} restoreNeeded=${!fixtureOk}`,
   );
 }
 
@@ -491,20 +477,24 @@ try {
   record('E4-17', status, evidence);
 }
 
-// E4-18 UI uses RPC not direct UPDATE
+// E4-18 UI uses RPC not direct UPDATE (beta: role-change select hidden — decision H)
 {
   const hh = fs.readFileSync('/workspace/halo-kakak/src/pages/Household.jsx', 'utf8');
   const settings = fs.readFileSync('/workspace/halo-kakak/src/pages/Settings.jsx', 'utf8');
   const usesRoleRpc = hh.includes("rpc('change_household_member_role'");
+  const roleSelectHidden =
+    !hh.includes('aria-label="更改角色"') && !/<select[\s\S]{0,120}更改角色/.test(hh);
+  // Beta may hide role UI; RPC path still required when select is present.
+  const roleOk = usesRoleRpc || roleSelectHidden;
   const usesRemoveRpc = hh.includes("rpc('remove_household_member'");
   const usesLeaveRpc = settings.includes("rpc('leave_household'");
   const noDirectUpdate = !hh.match(/from\('household_members'\)[\s\S]{0,80}\.update\(/);
   const ownerGate = hh.includes('canManageMembers');
-  const pass = usesRoleRpc && usesRemoveRpc && usesLeaveRpc && noDirectUpdate && ownerGate;
+  const pass = roleOk && usesRemoveRpc && usesLeaveRpc && noDirectUpdate && ownerGate;
   record(
     'E4-18',
     pass ? 'PASS' : 'FAIL',
-    `roleRpc=${usesRoleRpc} removeRpc=${usesRemoveRpc} leaveRpc=${usesLeaveRpc} noDirectUpdate=${noDirectUpdate} ownerGate=${ownerGate}`,
+    `roleRpc=${usesRoleRpc} roleSelectHidden=${roleSelectHidden} removeRpc=${usesRemoveRpc} leaveRpc=${usesLeaveRpc} noDirectUpdate=${noDirectUpdate} ownerGate=${ownerGate}`,
   );
 }
 

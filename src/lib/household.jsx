@@ -4,15 +4,18 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import { supabase } from './supabase'
 import { useAuth } from './auth'
 import { todayHK } from './constants'
+import {
+  STORAGE_ACTIVE_HOUSEHOLD,
+  STORAGE_PREVIEW_HELPER,
+} from './sessionLocalState'
 
 const HouseholdContext = createContext(null)
-const STORAGE_HH = 'halo-kakak-active-household'
-const STORAGE_PREVIEW = 'halo-kakak-preview-helper'
 
 export function HouseholdProvider({ children }) {
   const { user, isAuthenticated } = useAuth()
@@ -21,19 +24,17 @@ export function HouseholdProvider({ children }) {
   const [role, setRole] = useState(null)
   const [glossary, setGlossary] = useState([])
   const [loading, setLoading] = useState(true)
-  const [previewHelper, setPreviewHelper] = useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_PREVIEW) === '1'
-    } catch {
-      return false
-    }
-  })
+  const [previewHelper, setPreviewHelper] = useState(false)
+  const loadGenRef = useRef(0)
 
   const loadMemberships = useCallback(async () => {
+    const gen = ++loadGenRef.current
     if (!user) {
       setMemberships([])
       setHousehold(null)
       setRole(null)
+      setGlossary([])
+      setPreviewHelper(false)
       setLoading(false)
       return
     }
@@ -44,9 +45,13 @@ export function HouseholdProvider({ children }) {
       .eq('user_id', user.id)
       .eq('status', 'active')
 
+    if (gen !== loadGenRef.current) return
+
     if (error) {
       console.warn('memberships', error.message)
       setMemberships([])
+      setHousehold(null)
+      setRole(null)
       setLoading(false)
       return
     }
@@ -62,23 +67,29 @@ export function HouseholdProvider({ children }) {
 
     let saved = null
     try {
-      saved = localStorage.getItem(STORAGE_HH)
+      saved = localStorage.getItem(STORAGE_ACTIVE_HOUSEHOLD)
     } catch {
       /* ignore */
     }
+    // Only restore saved household if still an active membership for this user.
     const pick =
       rows.find((r) => r.householdId === saved) || rows[0] || null
     if (pick) {
       setHousehold(pick.household)
       setRole(pick.role)
       try {
-        localStorage.setItem(STORAGE_HH, pick.householdId)
+        localStorage.setItem(STORAGE_ACTIVE_HOUSEHOLD, pick.householdId)
       } catch {
         /* ignore */
       }
     } else {
       setHousehold(null)
       setRole(null)
+      try {
+        localStorage.removeItem(STORAGE_ACTIVE_HOUSEHOLD)
+      } catch {
+        /* ignore */
+      }
     }
     setLoading(false)
   }, [user])
@@ -86,6 +97,28 @@ export function HouseholdProvider({ children }) {
   useEffect(() => {
     loadMemberships()
   }, [loadMemberships])
+
+  // OFF-1: refetch memberships on reconnect / foreground without full reload
+  useEffect(() => {
+    function onOnline() {
+      if (user) loadMemberships()
+    }
+    function onVis() {
+      if (
+        document.visibilityState === 'visible' &&
+        navigator.onLine &&
+        user
+      ) {
+        loadMemberships()
+      }
+    }
+    window.addEventListener('online', onOnline)
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [user, loadMemberships])
 
   const loadGlossary = useCallback(async (hhId) => {
     if (!hhId) {
@@ -112,7 +145,7 @@ export function HouseholdProvider({ children }) {
       setHousehold(m.household)
       setRole(m.role)
       try {
-        localStorage.setItem(STORAGE_HH, householdId)
+        localStorage.setItem(STORAGE_ACTIVE_HOUSEHOLD, householdId)
       } catch {
         /* ignore */
       }
@@ -130,7 +163,7 @@ export function HouseholdProvider({ children }) {
       await loadMemberships()
       if (data?.id) {
         try {
-          localStorage.setItem(STORAGE_HH, data.id)
+          localStorage.setItem(STORAGE_ACTIVE_HOUSEHOLD, data.id)
         } catch {
           /* ignore */
         }
@@ -154,14 +187,29 @@ export function HouseholdProvider({ children }) {
   }, [household?.id])
 
   const setPreview = useCallback((on) => {
-    // Preview never changes real role — employers only
+    // Preview never changes real role — employers only; session-local only
     setPreviewHelper(!!on)
     try {
-      localStorage.setItem(STORAGE_PREVIEW, on ? '1' : '0')
+      if (on) localStorage.setItem(STORAGE_PREVIEW_HELPER, '1')
+      else localStorage.removeItem(STORAGE_PREVIEW_HELPER)
     } catch {
       /* ignore */
     }
   }, [])
+
+  // Preview flag is UI-only; do not restore across accounts after sign-out
+  // (cleared in clearSessionLocalState). Re-read only when employer signs in.
+  useEffect(() => {
+    if (!user) {
+      setPreviewHelper(false)
+      return
+    }
+    try {
+      setPreviewHelper(localStorage.getItem(STORAGE_PREVIEW_HELPER) === '1')
+    } catch {
+      setPreviewHelper(false)
+    }
+  }, [user?.id])
 
   const isEmployerSide = role === 'owner' || role === 'employer'
   const effectiveIsHelper = role === 'helper' || (isEmployerSide && previewHelper)

@@ -6,7 +6,7 @@ import { useState } from 'react'
 import HouseholdPresetsManager from '../components/presets/HouseholdPresetsManager'
 
 export default function Settings() {
-  const { user, profile, signOut, updateProfile } = useAuth()
+  const { user, profile, signOut, pendingQueueCount, updateProfile } = useAuth()
   const { household, role, effectiveIsHelper, memberships, glossary, ensureToday } =
     useHousehold()
   const [name, setName] = useState(profile?.display_name || '')
@@ -197,7 +197,16 @@ export default function Settings() {
 
       <button
         type="button"
-        onClick={signOut}
+        onClick={async () => {
+          const pending = pendingQueueCount?.() || 0
+          if (pending > 0) {
+            const discard = effectiveIsHelper
+              ? `Ada ${pending} perubahan offline. Buang dan keluar? (Batal = tetap masuk)`
+              : `有 ${pending} 項未同步變更。捨棄並登出？（取消＝繼續留喺入面）`
+            if (!window.confirm(discard)) return
+          }
+          await signOut({ discardPending: true })
+        }}
         className="w-full min-h-11 rounded-xl bg-slate-800 font-semibold text-white"
       >
         {effectiveIsHelper ? 'Keluar' : '登出'}

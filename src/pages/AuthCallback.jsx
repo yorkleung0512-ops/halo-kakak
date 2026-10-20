@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { mapAuthError } from '../lib/constants'
+import {
+  consumePendingDeepLink,
+  sanitizeInternalPath,
+} from '../lib/taskDetailAccess'
 
 export default function AuthCallback() {
   const navigate = useNavigate()
@@ -16,7 +20,15 @@ export default function AuthCallback() {
         setError(mapAuthError(err, 'zh'))
         return
       }
-      navigate('/', { replace: true })
+      // Prefer stored deep link from sign-in; else keep callback query (task/n).
+      const pending = consumePendingDeepLink()
+      const search = window.location.search || ''
+      const fallback =
+        search && (search.includes('task=') || search.includes('n='))
+          ? `/${search}`
+          : '/'
+      const target = sanitizeInternalPath(pending || fallback)
+      navigate(target, { replace: true })
     }
     run()
     return () => {

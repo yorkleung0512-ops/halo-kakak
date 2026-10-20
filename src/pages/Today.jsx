@@ -48,6 +48,7 @@ import TodayTimeline from '../components/today/TodayTimeline'
 import CompletedSection from '../components/today/CompletedSection'
 import OverdueSection from '../components/today/OverdueSection'
 import TaskDetailSheet from '../components/today/TaskDetailSheet'
+import { useTaskOccurrenceDetail } from '../hooks/useTaskOccurrenceDetail'
 
 const TASK_CHANNEL_PREFIX = 'hola-kakak-today-tasks-'
 
@@ -60,6 +61,7 @@ export default function Today() {
     effectiveIsHelper,
     canEditTasks,
     previewHelper,
+    reload: reloadMemberships,
   } = useHousehold()
   const { items: notifItems } = useNotifications()
 
@@ -91,10 +93,20 @@ export default function Today() {
   const [pendingCount, setPendingCount] = useState(0)
   const [pendingIds, setPendingIds] = useState(() => new Set())
   const [editTask, setEditTask] = useState(null)
-  const [detailTask, setDetailTask] = useState(null)
   const [searchParams] = useSearchParams()
   const deepTaskId = searchParams.get('task')
   const deepCommentId = searchParams.get('comment')
+  const {
+    detailTask,
+    setDetailTask,
+    detailTemplate,
+    detailError,
+    detailLoading,
+    openTaskById,
+    closeDetail,
+  } = useTaskOccurrenceDetail({ householdId: household?.id })
+  const deepHandledRef = useRef(null)
+  const loadGenRef = useRef(0)
   const channelRef = useRef(null)
   const tasksRef = useRef(tasks)
   const [nowTick, setNowTick] = useState(() => Date.now())
@@ -216,9 +228,11 @@ export default function Today() {
 
   const loadTasks = useCallback(async () => {
     if (!household?.id) return
+    const gen = ++loadGenRef.current
     setLoading(true)
     try {
       await ensureToday()
+      if (gen !== loadGenRef.current) return
       const date = todayHK()
       const { data, error } = await supabase
         .from('task_occurrences')
@@ -228,6 +242,7 @@ export default function Today() {
         .is('deleted_at', null)
         .order('due_at', { ascending: true, nullsFirst: false })
 
+      if (gen !== loadGenRef.current) return
       if (error) {
         showToast(effectiveIsHelper ? 'Gagal memuat' : '載入失敗')
       } else {
@@ -236,8 +251,10 @@ export default function Today() {
         await mergeTemplatesAndComments(rows, household.id)
       }
     } finally {
-      setLoading(false)
-      refreshPending()
+      if (gen === loadGenRef.current) {
+        setLoading(false)
+        refreshPending()
+      }
     }
   }, [
     household?.id,
@@ -248,7 +265,7 @@ export default function Today() {
     refreshPending,
   ])
 
-  // Clear tasks when household changes
+  // Clear tasks when household changes (do not switch HH via deep link)
   useEffect(() => {
     setTasks([])
     setTemplatesById({})
@@ -257,25 +274,79 @@ export default function Today() {
     setAssigneeNames({})
     setDetailTask(null)
     setEditTask(null)
-  }, [household?.id])
+    deepHandledRef.current = null
+    loadGenRef.current += 1
+  }, [household?.id, setDetailTask])
 
   useEffect(() => {
     loadTasks()
   }, [loadTasks])
 
+  // Deep link: resolve occurrence by ID (not limited to today's list)
   useEffect(() => {
-    if (!deepTaskId || loading) return
-    const el = document.getElementById(`task-${deepTaskId}`)
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    const found = tasks.find((t) => t.id === deepTaskId)
-    if (found) setDetailTask(found)
-  }, [deepTaskId, loading, tasks])
+    if (!deepTaskId) {
+      deepHandledRef.current = null
+      return
+    }
+    if (loading) return
+    if (deepHandledRef.current === deepTaskId && detailTask?.id === deepTaskId) {
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      const found = tasks.find((t) => t.id === deepTaskId) || null
+      const result = await openTaskById(deepTaskId, { fromList: found })
+      if (cancelled) return
+      deepHandledRef.current = deepTaskId
+      if (found) {
+        document
+          .getElementById(`task-${deepTaskId}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+      if (!result.ok && result.reason !== 'stale') {
+        showToast(
+          effectiveIsHelper
+            ? 'Tugas tidak tersedia'
+            : '搵唔到呢個任務',
+        )
+        closeDetail()
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    deepTaskId,
+    loading,
+    tasks,
+    openTaskById,
+    closeDetail,
+    showToast,
+    effectiveIsHelper,
+    detailTask?.id,
+  ])
 
   // Offline flush + visibility refetch
   useEffect(() => {
     refreshPending()
     async function onOnline() {
+      const { data: authData } = await supabase.auth.getUser()
+      const authed = authData?.user
+      if (!authed || !user?.id || authed.id !== user.id) {
+        refreshPending()
+        return
+      }
+      try {
+        await reloadMemberships()
+      } catch {
+        /* membership refresh best-effort */
+      }
       const result = await flushQueue(async (m) => {
+        // Re-check auth inside each mutation so late/stale sessions fail closed
+        const { data: again } = await supabase.auth.getUser()
+        if (!again?.user || again.user.id !== user.id) {
+          throw new Error('auth_mismatch')
+        }
         if (m.type === 'update_task') {
           const { error } = await supabase.rpc('update_task_occurrence', {
             p_id: m.payload.id,
@@ -327,6 +398,7 @@ export default function Today() {
     refreshPending,
     household?.id,
     refreshUnreadComments,
+    reloadMemberships,
   ])
 
   // Realtime: task_occurrences (+ comments) for this household
@@ -1121,10 +1193,20 @@ export default function Today() {
         }}
       />
 
+      {detailError && !detailTask && (
+        <p role="status" className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {effectiveIsHelper ? 'Tugas tidak tersedia' : '搵唔到呢個任務'}
+        </p>
+      )}
+      {detailLoading && !detailTask && deepTaskId && (
+        <p role="status" className="text-sm text-slate-500">
+          {effectiveIsHelper ? 'Memuat tugas…' : '載入任務中…'}
+        </p>
+      )}
       <TaskDetailSheet
         open={!!detailTask}
         task={detailTask}
-        onClose={() => setDetailTask(null)}
+        onClose={closeDetail}
         isHelper={effectiveIsHelper}
         canEdit={canEditTasks && !previewHelper && !effectiveIsHelper}
         onEdit={setEditTask}
@@ -1133,7 +1215,7 @@ export default function Today() {
         }
         template={
           detailTask?.template_id
-            ? templatesById[detailTask.template_id]
+            ? detailTemplate || templatesById[detailTask.template_id]
             : undefined
         }
         createdByName={

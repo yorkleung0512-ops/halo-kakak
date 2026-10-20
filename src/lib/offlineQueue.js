@@ -131,3 +131,35 @@ export async function flushQueue(handler, scope = null) {
 export function loadQueue() {
   return loadAll()
 }
+
+/**
+ * Count queue items that would run for this user on a shared device
+ * (owned by userId, or legacy unscoped items).
+ */
+export function countPendingForUser(userId) {
+  const all = loadAll()
+  if (!userId) return all.length
+  return all.filter((m) => !m.userId || m.userId === userId).length
+}
+
+/**
+ * On sign-out: drop this user's items and any legacy unscoped items
+ * so they cannot replay under another account. Keep other users' scoped items.
+ */
+export function discardQueueOnSignOut(userId) {
+  const all = loadAll()
+  if (!userId) {
+    saveAll([])
+    return all.length
+  }
+  const kept = all.filter((m) => m.userId && m.userId !== userId)
+  saveAll(kept)
+  return all.length - kept.length
+}
+
+/**
+ * Drop every queue item (tests / hard reset).
+ */
+export function clearEntireQueue() {
+  saveAll([])
+}
