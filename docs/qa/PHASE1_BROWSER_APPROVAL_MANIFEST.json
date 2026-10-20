@@ -2,7 +2,8 @@
   "created_at": "2026-10-21T02:30:00+08:00",
   "zone": "Asia/Hong_Kong (UTC+8)",
   "status": "AWAITING_YORK_APPROVAL",
-  "fix_commit_pending": true,
+  "fix_commit": "f0fe64a92564d926a0fb4994ff347724a751572b",
+  "fix_commit_pending": false,
   "preview_url": "https://phase1-reliability.halo-kakak.pages.dev",
   "backend": {
     "supabase_project_ref": "yevqwospotfujiziegpz",

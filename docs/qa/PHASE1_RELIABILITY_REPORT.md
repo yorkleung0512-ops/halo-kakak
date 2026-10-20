@@ -10,7 +10,7 @@
 |------|-----|-------|
 | Original implementation | `11854fe02dfeeb2668c697183179952318aaa13f` | Deep-link, Calendar/History open, initial sign-out isolation |
 | Docs (pre-isolation) | `d255312` / tip `97de02e` | Sanitized report only |
-| **Isolation security fix** | *(filled after commit)* | sessionEpoch, queue quarantine, membership revalidate, loader guards |
+| **Isolation security fix** | `f0fe64a92564d926a0fb4994ff347724a751572b` | sessionEpoch, queue quarantine, membership revalidate, loader guards |
 | **Deployed preview after push** | same as isolation fix commit | Push to `phase1-reliability` **auto-updates Cloudflare Pages preview** (not production) |
 
 Do **not** run browser tests against `11854fe` and present them as validation of the isolation fix.
