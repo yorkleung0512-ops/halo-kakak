@@ -9,7 +9,7 @@
 | Role | SHA | Notes |
 |------|-----|-------|
 | **Implementation commit** (code under test) | `11854fe02dfeeb2668c697183179952318aaa13f` | Deep-link TaskDetail, Calendar/History open, sign-out isolation, reconnect membership |
-| **Documentation commit** | *(this commit — see git log)* | Sanitized report only; no product code |
+| **Documentation commit** | `d255312d1a66638efd0b5bb544fcfef56dc06e7d` | Sanitized report only; no product code |
 | **Deployed / tested preview** | `11854fe02dfeeb2668c697183179952318aaa13f` | Must match implementation; docs commit is not required for preview UI |
 
 Do not treat a later docs-only SHA as the commit that was browser-verified.
