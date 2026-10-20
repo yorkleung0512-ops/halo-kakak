@@ -18,6 +18,7 @@ import {
   markNotificationsRead,
   softDeleteNotification,
 } from './notifications'
+import { getSessionEpoch, subscribeSessionEpoch } from './sessionEpoch'
 
 const NotificationsContext = createContext(null)
 
@@ -39,51 +40,82 @@ export function NotificationsProvider({ children }) {
   const bellRef = useRef(null)
   const seenIdsRef = useRef(new Set())
   const initialLoadDone = useRef(false)
+  const userIdRef = useRef(user?.id || null)
+  const refreshGenRef = useRef(0)
+  const epochAtClearRef = useRef(getSessionEpoch())
+
+  useEffect(() => {
+    userIdRef.current = user?.id || null
+  }, [user?.id])
 
   const clearLocal = useCallback(() => {
+    refreshGenRef.current += 1
+    epochAtClearRef.current = getSessionEpoch()
     setUnreadCount(0)
     setItems([])
     setToast(null)
     setError(null)
     setCentreOpen(false)
+    setLoading(false)
     seenIdsRef.current = new Set()
     initialLoadDone.current = false
   }, [])
 
+  // Epoch bumps (sign-out / user / household) invalidate in-flight refresh
+  useEffect(() => {
+    return subscribeSessionEpoch(() => {
+      clearLocal()
+    })
+  }, [clearLocal])
+
   const refreshUnread = useCallback(async () => {
-    if (!isAuthenticated || !user) {
+    const gen = ++refreshGenRef.current
+    const expectedUser = userIdRef.current
+    if (!isAuthenticated || !expectedUser) {
       setUnreadCount(0)
       return 0
     }
     try {
       const n = await fetchUnreadCount()
+      if (gen !== refreshGenRef.current) return 0
+      if (userIdRef.current !== expectedUser) return 0
       setUnreadCount(n)
       setError(null)
       return n
     } catch (e) {
+      if (gen !== refreshGenRef.current) return 0
+      if (userIdRef.current !== expectedUser) return 0
       setError(e?.message || 'sync')
       return 0
     }
-  }, [isAuthenticated, user])
+  }, [isAuthenticated])
 
   const refreshList = useCallback(async () => {
-    if (!isAuthenticated || !user) {
+    const gen = ++refreshGenRef.current
+    const expectedUser = userIdRef.current
+    if (!isAuthenticated || !expectedUser) {
       setItems([])
       return
     }
     setLoading(true)
     try {
       const rows = await fetchNotifications({ limit: 50 })
+      if (gen !== refreshGenRef.current) return
+      if (userIdRef.current !== expectedUser) return
       setItems(rows)
       rows.forEach((r) => seenIdsRef.current.add(r.id))
       setError(null)
     } catch (e) {
+      if (gen !== refreshGenRef.current) return
+      if (userIdRef.current !== expectedUser) return
       setError(e?.message || 'sync')
     } finally {
-      setLoading(false)
-      initialLoadDone.current = true
+      if (gen === refreshGenRef.current && userIdRef.current === expectedUser) {
+        setLoading(false)
+        initialLoadDone.current = true
+      }
     }
-  }, [isAuthenticated, user])
+  }, [isAuthenticated])
 
   const refreshAll = useCallback(async () => {
     await Promise.all([refreshUnread(), refreshList()])
@@ -123,14 +155,16 @@ export function NotificationsProvider({ children }) {
   // Realtime subscription — one channel per user, cleaned on logout/unmount/user change
   useEffect(() => {
     let cancelled = false
+    const boundUserId = user?.id || null
+    const boundEpoch = getSessionEpoch()
     async function setup() {
       if (channelRef.current) {
         await supabase.removeChannel(channelRef.current)
         channelRef.current = null
       }
-      if (!isAuthenticated || !user?.id || cancelled) return
+      if (!isAuthenticated || !boundUserId || cancelled) return
 
-      const name = `${CHANNEL_PREFIX}${user.id}`
+      const name = `${CHANNEL_PREFIX}${boundUserId}`
       const channel = supabase
         .channel(name)
         .on(
@@ -139,9 +173,12 @@ export function NotificationsProvider({ children }) {
             event: 'INSERT',
             schema: 'public',
             table: 'notifications',
-            filter: `recipient_user_id=eq.${user.id}`,
+            filter: `recipient_user_id=eq.${boundUserId}`,
           },
           (payload) => {
+            if (cancelled) return
+            if (userIdRef.current !== boundUserId) return
+            if (getSessionEpoch() !== boundEpoch) return
             const row = payload.new
             if (!row?.id) return
             if (seenIdsRef.current.has(row.id)) return
@@ -151,7 +188,6 @@ export function NotificationsProvider({ children }) {
               return [row, ...prev].slice(0, 50)
             })
             setUnreadCount((c) => c + (row.read_at ? 0 : 1))
-            // Toast only for realtime after initial load
             if (initialLoadDone.current) {
               setToast({
                 id: row.id,
@@ -159,8 +195,9 @@ export function NotificationsProvider({ children }) {
                 at: Date.now(),
               })
             }
-            // Reconcile from DB shortly (authoritative unread)
             setTimeout(() => {
+              if (userIdRef.current !== boundUserId) return
+              if (getSessionEpoch() !== boundEpoch) return
               refreshUnread()
             }, 400)
           },
@@ -171,9 +208,12 @@ export function NotificationsProvider({ children }) {
             event: 'UPDATE',
             schema: 'public',
             table: 'notifications',
-            filter: `recipient_user_id=eq.${user.id}`,
+            filter: `recipient_user_id=eq.${boundUserId}`,
           },
           () => {
+            if (cancelled) return
+            if (userIdRef.current !== boundUserId) return
+            if (getSessionEpoch() !== boundEpoch) return
             refreshUnread()
             refreshList()
           },
@@ -192,8 +232,6 @@ export function NotificationsProvider({ children }) {
     }
   }, [isAuthenticated, user?.id, refreshUnread, refreshList])
 
-  // Sign-out cleanup already via isAuthenticated flip → clearLocal + channel teardown
-
   const openCentre = useCallback(() => {
     setCentreOpen(true)
     refreshAll()
@@ -207,6 +245,7 @@ export function NotificationsProvider({ children }) {
   const markRead = useCallback(
     async (ids) => {
       await markNotificationsRead(ids)
+      if (!userIdRef.current) return
       setItems((prev) =>
         prev.map((n) =>
           ids.includes(n.id) ? { ...n, read_at: n.read_at || new Date().toISOString() } : n,
@@ -220,6 +259,7 @@ export function NotificationsProvider({ children }) {
   const markUnread = useCallback(
     async (id) => {
       await markNotificationUnread(id)
+      if (!userIdRef.current) return
       setItems((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read_at: null } : n)),
       )
@@ -230,6 +270,7 @@ export function NotificationsProvider({ children }) {
 
   const markAll = useCallback(async () => {
     await markAllNotificationsRead()
+    if (!userIdRef.current) return
     setItems((prev) =>
       prev.map((n) => ({
         ...n,
@@ -244,6 +285,7 @@ export function NotificationsProvider({ children }) {
   const removeLocal = useCallback(
     async (id) => {
       await softDeleteNotification(id)
+      if (!userIdRef.current) return
       setItems((prev) => prev.filter((n) => n.id !== id))
       await refreshUnread()
     },
@@ -270,6 +312,7 @@ export function NotificationsProvider({ children }) {
       dismissToast,
       setToast,
       removeLocal,
+      clearLocal,
     }),
     [
       unreadCount,
@@ -288,6 +331,7 @@ export function NotificationsProvider({ children }) {
       markAll,
       dismissToast,
       removeLocal,
+      clearLocal,
     ],
   )
 

@@ -12,6 +12,10 @@ import {
   countPendingForUser,
   clearEntireQueue,
   flushQueue,
+  listQuarantined,
+  countQuarantined,
+  discardQuarantined,
+  isTrustedScope,
 } from '../src/lib/offlineQueue.js'
 
 // mock localStorage for node
@@ -77,19 +81,22 @@ enqueueMutation(
   { type: 'update_task', payload: { id: 't2', version: 1, patch: {} } },
   { userId: 'user-b', householdId: 'hh-b' },
 )
-// legacy unscoped
+// legacy unscoped — quarantined, never flushable / peekable for replay
 enqueueMutation({
   type: 'update_task',
-  payload: { id: 't3', version: 1, patch: {} },
+  payload: { id: 't3', version: 1, patch: {}, household_id: 'hh-b' },
 })
 
-assert.equal(countPendingForUser('user-a'), 2) // a + legacy
-// Legacy unscoped items are visible to any scoped peek (existing behaviour)
-assert.equal(peekQueue({ userId: 'user-b', householdId: 'hh-b' }).length, 2)
+assert.equal(isTrustedScope(peekQueue({ userId: 'user-a', householdId: 'hh-a' })[0]), true)
+assert.equal(countPendingForUser('user-a'), 1) // trusted owned only
+assert.equal(countQuarantined(), 1)
+assert.equal(peekQueue({ userId: 'user-b', householdId: 'hh-b' }).length, 1)
+assert.equal(listQuarantined().length, 1)
 
 const dropped = discardQueueOnSignOut('user-a')
-assert.ok(dropped >= 2)
-assert.equal(peekQueue({ userId: 'user-b' }).length, 1)
+assert.equal(dropped, 1) // only user-a's trusted item
+assert.equal(peekQueue({ userId: 'user-b', householdId: 'hh-b' }).length, 1)
+assert.equal(countQuarantined(), 1) // legacy kept until explicit discard
 assert.equal(countPendingForUser('user-a'), 0)
 
 let ran = []
@@ -97,6 +104,9 @@ await flushQueue(async (m) => {
   ran.push(m.userId)
 }, { userId: 'user-b', householdId: 'hh-b' })
 assert.deepEqual(ran, ['user-b'])
+assert.equal(countQuarantined(), 1) // still quarantined after flush
+assert.equal(discardQuarantined(), 1)
+assert.equal(countQuarantined(), 0)
 assert.equal(peekQueue().length, 0)
 
 clearEntireQueue()

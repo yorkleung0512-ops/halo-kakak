@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Share2, Trash2, UserMinus } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useHousehold } from '../lib/household'
 import { supabase } from '../lib/supabase'
 import { HK_DICT } from '../lib/constants'
+import { getSessionEpoch, subscribeSessionEpoch } from '../lib/sessionEpoch'
 
 export default function HouseholdPage() {
   const { user } = useAuth()
@@ -25,23 +26,53 @@ export default function HouseholdPage() {
   const [toast, setToast] = useState('')
   const [gZh, setGZh] = useState('')
   const [gId, setGId] = useState('')
+  const loadGenRef = useRef(0)
+  const hhIdRef = useRef(household?.id || null)
+
+  useEffect(() => {
+    hhIdRef.current = household?.id || null
+  }, [household?.id])
+
+  const clearLocal = useCallback(() => {
+    loadGenRef.current += 1
+    setMembers([])
+    setInvites([])
+    setInviteLink('')
+  }, [])
+
+  useEffect(() => subscribeSessionEpoch(() => clearLocal()), [clearLocal])
+
+  useEffect(() => {
+    if (!user || !household?.id) {
+      clearLocal()
+    }
+  }, [user?.id, household?.id, clearLocal])
 
   const load = useCallback(async () => {
-    if (!household?.id) return
+    if (!user || !household?.id) {
+      clearLocal()
+      return
+    }
+    const gen = ++loadGenRef.current
+    const expectedHh = household.id
+    const epoch = getSessionEpoch()
     const [{ data: mem }, { data: inv }] = await Promise.all([
       supabase
         .from('household_members')
         .select('user_id, role, status, joined_at')
-        .eq('household_id', household.id)
+        .eq('household_id', expectedHh)
         .eq('status', 'active'),
       supabase
         .from('household_invites')
         .select('id, invited_role, expires_at, used_at, revoked_at, created_at')
-        .eq('household_id', household.id)
+        .eq('household_id', expectedHh)
         .is('used_at', null)
         .is('revoked_at', null)
         .order('created_at', { ascending: false }),
     ])
+    if (gen !== loadGenRef.current) return
+    if (hhIdRef.current !== expectedHh) return
+    if (getSessionEpoch() !== epoch) return
     let enriched = mem || []
     const ids = enriched.map((m) => m.user_id)
     if (ids.length) {
@@ -49,12 +80,15 @@ export default function HouseholdPage() {
         .from('profiles')
         .select('id, display_name')
         .in('id', ids)
+      if (gen !== loadGenRef.current) return
+      if (hhIdRef.current !== expectedHh) return
+      if (getSessionEpoch() !== epoch) return
       const map = Object.fromEntries((profiles || []).map((p) => [p.id, p]))
       enriched = enriched.map((m) => ({ ...m, profiles: map[m.user_id] || null }))
     }
     setMembers(enriched)
     setInvites(inv || [])
-  }, [household?.id])
+  }, [household?.id, user, clearLocal])
 
   useEffect(() => {
     load()

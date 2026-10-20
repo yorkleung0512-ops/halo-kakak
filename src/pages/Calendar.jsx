@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useHousehold } from '../lib/household'
@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { todayHK, STATUS_LABELS } from '../lib/constants'
 import TaskDetailSheet from '../components/today/TaskDetailSheet'
 import { useTaskOccurrenceDetail } from '../hooks/useTaskOccurrenceDetail'
+import { getSessionEpoch, subscribeSessionEpoch } from '../lib/sessionEpoch'
 
 export default function Calendar() {
   const { user } = useAuth()
@@ -21,6 +22,8 @@ export default function Calendar() {
   const templateId = searchParams.get('template')
   const deepTaskId = searchParams.get('task')
   const [templateInfo, setTemplateInfo] = useState(null)
+  const loadGenRef = useRef(0)
+  const hhIdRef = useRef(household?.id || null)
   const {
     detailTask,
     detailTemplate,
@@ -32,30 +35,70 @@ export default function Calendar() {
   } = useTaskOccurrenceDetail({ householdId: household?.id })
 
   useEffect(() => {
-    if (!household?.id) return
+    hhIdRef.current = household?.id || null
+  }, [household?.id])
+
+  const clearLists = () => {
+    loadGenRef.current += 1
+    setTasks([])
+    setTemplateInfo(null)
+  }
+
+  useEffect(() => {
+    return subscribeSessionEpoch(() => {
+      clearLists()
+    })
+  }, [])
+
+  // Clear when user/household gone or switched
+  useEffect(() => {
+    if (!user || !household?.id) {
+      clearLists()
+      return
+    }
+    loadGenRef.current += 1
+    setTasks([])
+  }, [user?.id, household?.id])
+
+  useEffect(() => {
+    if (!user || !household?.id) return
+    const gen = ++loadGenRef.current
+    const expectedHh = household.id
+    const epoch = getSessionEpoch()
     supabase
       .from('task_occurrences')
       .select(
         'id, title_zh, title_id, status, due_at, template_id, household_id, task_date, instructions_zh, instructions_id, additional_instructions_zh, additional_instructions_id, assigned_to, created_by, priority, version',
       )
-      .eq('household_id', household.id)
+      .eq('household_id', expectedHh)
       .eq('task_date', date)
       .is('deleted_at', null)
-      .then(({ data }) => setTasks(data || []))
-  }, [household?.id, date])
+      .then(({ data }) => {
+        if (gen !== loadGenRef.current) return
+        if (hhIdRef.current !== expectedHh) return
+        if (getSessionEpoch() !== epoch) return
+        setTasks(data || [])
+      })
+  }, [user?.id, household?.id, date])
 
   useEffect(() => {
     if (!templateId) {
       setTemplateInfo(null)
       return
     }
+    const gen = loadGenRef.current
+    const epoch = getSessionEpoch()
     supabase
       .from('task_templates')
       .select('id, title_zh, title_id, recurrence_rule, is_active')
       .eq('id', templateId)
       .is('deleted_at', null)
       .maybeSingle()
-      .then(({ data }) => setTemplateInfo(data || null))
+      .then(({ data }) => {
+        if (gen !== loadGenRef.current) return
+        if (getSessionEpoch() !== epoch) return
+        setTemplateInfo(data || null)
+      })
   }, [templateId])
 
   // Support /calendar?task= for shared open logic (notifications still use /?task=)

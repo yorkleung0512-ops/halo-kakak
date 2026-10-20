@@ -2,15 +2,28 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useHousehold } from '../lib/household'
 import { supabase } from '../lib/supabase'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import HouseholdPresetsManager from '../components/presets/HouseholdPresetsManager'
 
 export default function Settings() {
-  const { user, profile, signOut, pendingQueueCount, updateProfile } = useAuth()
+  const {
+    user,
+    profile,
+    signOut,
+    pendingQueueCount,
+    quarantinedQueueCount,
+    discardQuarantinedQueue,
+    updateProfile,
+  } = useAuth()
   const { household, role, effectiveIsHelper, memberships, glossary, ensureToday } =
     useHousehold()
   const [name, setName] = useState(profile?.display_name || '')
   const [msg, setMsg] = useState('')
+  const [quarantined, setQuarantined] = useState(0)
+
+  useEffect(() => {
+    setQuarantined(quarantinedQueueCount?.() || 0)
+  }, [quarantinedQueueCount, user?.id])
 
   async function saveProfile(e) {
     e.preventDefault()
@@ -194,6 +207,46 @@ export default function Settings() {
           {effectiveIsHelper ? 'Minta hapus akun' : '要求刪除帳戶'}
         </button>
       </section>
+
+
+      {quarantined > 0 && (
+        <section
+          role="status"
+          className="rounded-2xl border border-amber-300 bg-amber-50 p-4 space-y-2"
+        >
+          <h2 className="font-bold text-amber-950">
+            {effectiveIsHelper
+              ? 'Perubahan offline lama tidak aman'
+              : '舊版未同步變更無法安全重放'}
+          </h2>
+          <p className="text-sm text-amber-900">
+            {effectiveIsHelper
+              ? `${quarantined} item antrean lama tidak punya kepemilikan yang jelas, jadi tidak akan dikirim. Anda dapat membuangnya secara eksplisit.`
+              : `有 ${quarantined} 項舊版離線佇列缺少可靠擁有者標記，唔會自動重放。請明確捨棄。`}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              const ok = window.confirm(
+                effectiveIsHelper
+                  ? 'Buang perubahan offline lama yang tidak dapat dikirim?'
+                  : '確定捨棄無法安全重放嘅舊版離線變更？',
+              )
+              if (!ok) return
+              const n = discardQuarantinedQueue?.() || 0
+              setQuarantined(quarantinedQueueCount?.() || 0)
+              setMsg(
+                effectiveIsHelper
+                  ? `Dibuang ${n} item lama`
+                  : `已捨棄 ${n} 項舊版變更`,
+              )
+            }}
+            className="min-h-11 rounded-xl border border-amber-400 bg-white px-4 text-sm font-semibold text-amber-950"
+          >
+            {effectiveIsHelper ? 'Buang item lama' : '捨棄舊版佇列'}
+          </button>
+        </section>
+      )}
 
       <button
         type="button"

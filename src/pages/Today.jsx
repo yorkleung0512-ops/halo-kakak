@@ -49,6 +49,7 @@ import CompletedSection from '../components/today/CompletedSection'
 import OverdueSection from '../components/today/OverdueSection'
 import TaskDetailSheet from '../components/today/TaskDetailSheet'
 import { useTaskOccurrenceDetail } from '../hooks/useTaskOccurrenceDetail'
+import { getSessionEpoch, subscribeSessionEpoch } from '../lib/sessionEpoch'
 
 const TASK_CHANNEL_PREFIX = 'hola-kakak-today-tasks-'
 
@@ -62,6 +63,7 @@ export default function Today() {
     canEditTasks,
     previewHelper,
     reload: reloadMemberships,
+    verifyActiveMembership,
   } = useHousehold()
   const { items: notifItems } = useNotifications()
 
@@ -109,7 +111,16 @@ export default function Today() {
   const loadGenRef = useRef(0)
   const channelRef = useRef(null)
   const tasksRef = useRef(tasks)
+  const userIdRef = useRef(user?.id || null)
+  const hhIdRef = useRef(household?.id || null)
   const [nowTick, setNowTick] = useState(() => Date.now())
+
+  useEffect(() => {
+    userIdRef.current = user?.id || null
+  }, [user?.id])
+  useEffect(() => {
+    hhIdRef.current = household?.id || null
+  }, [household?.id])
 
   useEffect(() => {
     tasksRef.current = tasks
@@ -154,8 +165,14 @@ export default function Today() {
       setUnreadCommentTaskIds(new Set())
       return
     }
+    const expectedHh = hhId
+    const expectedUser = userIdRef.current
+    const epoch = getSessionEpoch()
     const { rows, error } = await fetchUnreadCommentSummary(hhId, todayHK())
     if (error) return
+    if (hhIdRef.current !== expectedHh) return
+    if (userIdRef.current !== expectedUser) return
+    if (getSessionEpoch() !== epoch) return
     setUnreadCommentTaskIds(unreadCommentTaskIdsFromSummary(rows))
   }, [])
 
@@ -203,6 +220,10 @@ export default function Today() {
           : Promise.resolve({ rows: [], error: null }),
       ])
 
+    // Stale-session guard: do not apply if user/household/epoch changed mid-flight
+    if (hhIdRef.current !== hhId) return
+    if (!userIdRef.current) return
+
     const tplMap = {}
     for (const t of tplRes.data || []) tplMap[t.id] = t
     setTemplatesById(tplMap)
@@ -227,37 +248,53 @@ export default function Today() {
   }, [])
 
   const loadTasks = useCallback(async () => {
-    if (!household?.id) return
+    if (!household?.id || !user?.id) {
+      setLoading(false)
+      return
+    }
     const gen = ++loadGenRef.current
+    const expectedHh = household.id
+    const expectedUser = user.id
+    const epoch = getSessionEpoch()
     setLoading(true)
     try {
       await ensureToday()
       if (gen !== loadGenRef.current) return
+      if (hhIdRef.current !== expectedHh || userIdRef.current !== expectedUser) return
+      if (getSessionEpoch() !== epoch) return
       const date = todayHK()
       const { data, error } = await supabase
         .from('task_occurrences')
         .select('*')
-        .eq('household_id', household.id)
+        .eq('household_id', expectedHh)
         .eq('task_date', date)
         .is('deleted_at', null)
         .order('due_at', { ascending: true, nullsFirst: false })
 
       if (gen !== loadGenRef.current) return
+      if (hhIdRef.current !== expectedHh || userIdRef.current !== expectedUser) return
+      if (getSessionEpoch() !== epoch) return
       if (error) {
         showToast(effectiveIsHelper ? 'Gagal memuat' : '載入失敗')
       } else {
         const rows = data || []
         setTasks(rows)
-        await mergeTemplatesAndComments(rows, household.id)
+        await mergeTemplatesAndComments(rows, expectedHh)
       }
     } finally {
-      if (gen === loadGenRef.current) {
+      if (
+        gen === loadGenRef.current &&
+        hhIdRef.current === expectedHh &&
+        userIdRef.current === expectedUser &&
+        getSessionEpoch() === epoch
+      ) {
         setLoading(false)
         refreshPending()
       }
     }
   }, [
     household?.id,
+    user?.id,
     ensureToday,
     showToast,
     effectiveIsHelper,
@@ -265,8 +302,7 @@ export default function Today() {
     refreshPending,
   ])
 
-  // Clear tasks when household changes (do not switch HH via deep link)
-  useEffect(() => {
+  const wipeTodayState = useCallback(() => {
     setTasks([])
     setTemplatesById({})
     setCommentCounts({})
@@ -274,9 +310,18 @@ export default function Today() {
     setAssigneeNames({})
     setDetailTask(null)
     setEditTask(null)
+    setPendingCount(0)
+    setPendingIds(new Set())
     deepHandledRef.current = null
     loadGenRef.current += 1
-  }, [household?.id, setDetailTask])
+  }, [setDetailTask])
+
+  // Clear tasks when household/user changes (do not switch HH via deep link)
+  useEffect(() => {
+    wipeTodayState()
+  }, [household?.id, user?.id, wipeTodayState])
+
+  useEffect(() => subscribeSessionEpoch(() => wipeTodayState()), [wipeTodayState])
 
   useEffect(() => {
     loadTasks()
@@ -336,16 +381,38 @@ export default function Today() {
         refreshPending()
         return
       }
+      // Revalidate active membership for this household before any replay.
+      // Fail closed: leave items in queue (no false-success toast).
+      let membershipOk = false
       try {
-        await reloadMemberships()
+        const vr = await verifyActiveMembership(household?.id, user.id)
+        membershipOk = !!vr?.ok
+        if (membershipOk) {
+          await reloadMemberships()
+        }
       } catch {
-        /* membership refresh best-effort */
+        membershipOk = false
+      }
+      if (!membershipOk || !household?.id) {
+        refreshPending()
+        return
       }
       const result = await flushQueue(async (m) => {
         // Re-check auth inside each mutation so late/stale sessions fail closed
         const { data: again } = await supabase.auth.getUser()
         if (!again?.user || again.user.id !== user.id) {
           throw new Error('auth_mismatch')
+        }
+        // Queue ownership must match authenticated user (never infer).
+        if (m.userId !== user.id) {
+          throw new Error('queue_owner_mismatch')
+        }
+        if (m.householdId !== household.id) {
+          throw new Error('queue_household_mismatch')
+        }
+        const mem = await verifyActiveMembership(m.householdId, user.id)
+        if (!mem?.ok) {
+          throw new Error(mem?.reason || 'membership_invalid')
         }
         if (m.type === 'update_task') {
           const { error } = await supabase.rpc('update_task_occurrence', {
@@ -356,9 +423,9 @@ export default function Today() {
           if (error) throw error
           if (m.payload.comment) {
             await supabase.from('task_comments').insert({
-              household_id: m.payload.household_id,
+              household_id: m.payload.household_id || m.householdId,
               task_occurrence_id: m.payload.id,
-              user_id: user.id,
+              user_id: again.user.id,
               message: m.payload.comment,
             })
           }
@@ -399,6 +466,7 @@ export default function Today() {
     household?.id,
     refreshUnreadComments,
     reloadMemberships,
+    verifyActiveMembership,
   ])
 
   // Realtime: task_occurrences (+ comments) for this household
@@ -423,6 +491,8 @@ export default function Today() {
             filter: `household_id=eq.${household.id}`,
           },
           (payload) => {
+            if (hhIdRef.current !== household.id) return
+            if (userIdRef.current !== user?.id) return
             const date = todayHK()
             const row = payload.new || payload.old
             if (!row) return
@@ -467,6 +537,10 @@ export default function Today() {
             filter: `household_id=eq.${household.id}`,
           },
           () => {
+            if (hhIdRef.current !== household.id) return
+            if (userIdRef.current !== user?.id) return
+            const boundHh = household.id
+            const boundUser = user?.id
             const ids = tasksRef.current.map((t) => t.id)
             if (ids.length) {
               supabase
@@ -474,11 +548,13 @@ export default function Today() {
                 .select('task_occurrence_id')
                 .in('task_occurrence_id', ids)
                 .then(({ data }) => {
+                  if (hhIdRef.current !== boundHh) return
+                  if (userIdRef.current !== boundUser) return
                   setCommentCounts(aggregateCommentCounts(data || []))
                 })
             }
             // Real unread state from receipts — not inference
-            refreshUnreadComments(household.id)
+            refreshUnreadComments(boundHh)
           },
         )
         .on(
@@ -496,6 +572,8 @@ export default function Today() {
                 table: 'task_comment_reads',
               },
           () => {
+            if (hhIdRef.current !== household.id) return
+            if (userIdRef.current !== user?.id) return
             refreshUnreadComments(household.id)
           },
         )

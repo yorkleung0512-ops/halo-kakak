@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useHousehold } from '../lib/household'
@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { STATUS_LABELS, formatTimeHK } from '../lib/constants'
 import TaskDetailSheet from '../components/today/TaskDetailSheet'
 import { useTaskOccurrenceDetail } from '../hooks/useTaskOccurrenceDetail'
+import { getSessionEpoch, subscribeSessionEpoch } from '../lib/sessionEpoch'
 
 export default function History() {
   const { user } = useAuth()
@@ -18,6 +19,8 @@ export default function History() {
   const [rows, setRows] = useState([])
   const [searchParams] = useSearchParams()
   const deepTaskId = searchParams.get('task')
+  const loadGenRef = useRef(0)
+  const hhIdRef = useRef(household?.id || null)
   const {
     detailTask,
     detailTemplate,
@@ -29,19 +32,51 @@ export default function History() {
   } = useTaskOccurrenceDetail({ householdId: household?.id })
 
   useEffect(() => {
-    if (!household?.id) return
+    hhIdRef.current = household?.id || null
+  }, [household?.id])
+
+  const clearLists = () => {
+    loadGenRef.current += 1
+    setRows([])
+  }
+
+  useEffect(() => {
+    return subscribeSessionEpoch(() => {
+      clearLists()
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!user || !household?.id) {
+      clearLists()
+      return
+    }
+    loadGenRef.current += 1
+    setRows([])
+  }, [user?.id, household?.id])
+
+  useEffect(() => {
+    if (!user || !household?.id) return
+    const gen = ++loadGenRef.current
+    const expectedHh = household.id
+    const epoch = getSessionEpoch()
     supabase
       .from('task_occurrences')
       .select(
         'id, title_zh, title_id, status, task_date, completed_at, updated_at, household_id, instructions_zh, instructions_id, additional_instructions_zh, additional_instructions_id, due_at, template_id, assigned_to, created_by, priority, version',
       )
-      .eq('household_id', household.id)
+      .eq('household_id', expectedHh)
       .is('deleted_at', null)
       .in('status', ['completed', 'cancelled', 'cannot_complete'])
       .order('task_date', { ascending: false })
       .limit(50)
-      .then(({ data }) => setRows(data || []))
-  }, [household?.id])
+      .then(({ data }) => {
+        if (gen !== loadGenRef.current) return
+        if (hhIdRef.current !== expectedHh) return
+        if (getSessionEpoch() !== epoch) return
+        setRows(data || [])
+      })
+  }, [user?.id, household?.id])
 
   useEffect(() => {
     if (!deepTaskId || !household?.id) return

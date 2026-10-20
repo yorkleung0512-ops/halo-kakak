@@ -1,0 +1,407 @@
+{
+  "created_at": "2026-10-21T02:30:00+08:00",
+  "zone": "Asia/Hong_Kong (UTC+8)",
+  "status": "AWAITING_YORK_APPROVAL",
+  "fix_commit_pending": true,
+  "preview_url": "https://phase1-reliability.halo-kakak.pages.dev",
+  "backend": {
+    "supabase_project_ref": "yevqwospotfujiziegpz",
+    "shared_with_production": true,
+    "isolated_preview_db": false,
+    "note": "Authenticated browser actions hit production Supabase. Bound to QA households only."
+  },
+  "push_note": "Pushing origin/phase1-reliability auto-updates Cloudflare Pages PREVIEW (not production). Merge main = production deploy.",
+  "accounts": [
+    {
+      "key": "qa-owner-a",
+      "user_id": "fa8d4fe3-6ce0-48b3-b5cd-79661997d26d",
+      "email": "qa-owner-a@halokakak-qa.test",
+      "role": "owner",
+      "household_key": "A"
+    },
+    {
+      "key": "qa-employer-a",
+      "user_id": "d07c1d29-4e35-472d-85e3-c53cb63bbc6f",
+      "email": "qa-employer-a@halokakak-qa.test",
+      "role": "employer",
+      "household_key": "A"
+    },
+    {
+      "key": "qa-helper-a",
+      "user_id": "1c921b48-02e4-4df5-9224-b1e995db2b34",
+      "email": "qa-helper-a@halokakak-qa.test",
+      "role": "helper",
+      "household_key": "A"
+    },
+    {
+      "key": "qa-removed-helper-a",
+      "user_id": "07071643-ea6b-4fe6-bfdb-391520243957",
+      "email": "qa-removed-helper-a@halokakak-qa.test",
+      "role": "helper(removed)",
+      "household_key": "A"
+    },
+    {
+      "key": "qa-helper-b",
+      "user_id": "7cee5685-0ffa-4c52-9f42-4499a3dd9008",
+      "email": "qa-helper-b@halokakak-qa.test",
+      "role": "helper",
+      "household_key": "B"
+    }
+  ],
+  "households": {
+    "A": {
+      "id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "name": "QA Household A"
+    },
+    "B": {
+      "id": "e254fc7f-7a26-432a-8060-1cf17d55c189",
+      "name": "QA Household B"
+    }
+  },
+  "known_seed_records": {
+    "source": "/tmp/halo-kakak-qa/smoke-seed.json (local; may be stale since 2026-10-19)",
+    "occurrences": {
+      "task_a_today": "a1111111-1111-4111-8111-111111111101",
+      "task_b_today": "b2222222-2222-4222-8222-222222222201",
+      "task_a_yesterday": "a1111111-1111-4111-8111-111111111190"
+    },
+    "comments": {
+      "helper_a_on_a": "c1111111-1111-4111-8111-111111111101",
+      "employer_a_on_a": "c1111111-1111-4111-8111-111111111102",
+      "helper_a_yesterday": "c1111111-1111-4111-8111-111111111190"
+    },
+    "notifications": {
+      "helper_a_assigned": "f1111111-1111-4111-8111-111111111101"
+    },
+    "stale_warning": "Seed dated 2026-10-19; Today/future notification targets may need fresh QA-only records. Confirm existence before run or approve proposed_qa_records."
+  },
+  "missing_prerequisites": [
+    "Confirm or approve creation of: (1) future-dated QA occurrence + unread notification for helper-a while Today empty; (2) disposable offline-flush target occurrence; (3) confirm notification f111... still exists and is unread or approve disposable notif.",
+    "Do NOT auto-create accounts/records without separate approval."
+  ],
+  "scenarios": [
+    {
+      "id": "A1",
+      "scenario": "Open future task from notification while Today has zero tasks",
+      "account_key": "qa-helper-a",
+      "role": "helper",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": null,
+      "proposed_qa_records": [
+        "future occurrence in HH A (task_date > today HK)",
+        "unread notification for qa-helper-a pointing at that occurrence"
+      ],
+      "actions": ["Sign in", "Ensure Today empty or filter day", "Open notification centre", "Tap notification"],
+      "side_effects": ["notifications.read_at may be set (DB write)"],
+      "touches_real_household_data": false,
+      "reversible": "partially (can mark notification unread again)",
+      "irreversible_notes": "none if QA-only notif",
+      "cleanup_proposal": "Delete disposable notification / leave occurrence; NOT authorized"
+    },
+    {
+      "id": "A2",
+      "scenario": "Open past/completed task from notification",
+      "account_key": "qa-helper-a",
+      "role": "helper",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "occurrence": "a1111111-1111-4111-8111-111111111190",
+        "notification": "needs_confirm_or_proposed"
+      },
+      "proposed_qa_records": ["unread notification linking to past/completed occurrence"],
+      "actions": ["Open from notification centre"],
+      "side_effects": ["notification read mark"],
+      "touches_real_household_data": false,
+      "reversible": "partially",
+      "cleanup_proposal": "Reset notification read_at; NOT authorized"
+    },
+    {
+      "id": "A3",
+      "scenario": "Open task details from Calendar",
+      "account_key": "qa-employer-a",
+      "role": "employer",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "occurrence": "a1111111-1111-4111-8111-111111111101"
+      },
+      "actions": ["Open Calendar", "Pick date with occurrence", "Click row"],
+      "side_effects": ["None if comments panel not marked read; opening sheet may later trigger comment_reads — treat as potentially mutating"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "none if no comment_reads write"
+    },
+    {
+      "id": "A4",
+      "scenario": "Open task details from History",
+      "account_key": "qa-employer-a",
+      "role": "employer",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "occurrence": "a1111111-1111-4111-8111-111111111190"
+      },
+      "actions": ["Open History", "Click completed row"],
+      "side_effects": ["potentially comment_reads if comments viewed"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "none unless receipts written"
+    },
+    {
+      "id": "A5",
+      "scenario": "Read existing History comments",
+      "account_key": "qa-helper-a",
+      "role": "helper",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "occurrence": "a1111111-1111-4111-8111-111111111190",
+        "comments": ["c1111111-1111-4111-8111-111111111190"]
+      },
+      "actions": ["Open from History", "View comments panel"],
+      "side_effects": ["task_comment_reads upsert for viewer only"],
+      "touches_real_household_data": false,
+      "reversible": "partially (delete receipt rows)",
+      "cleanup_proposal": "Delete helper-a comment_reads for that occurrence; NOT authorized"
+    },
+    {
+      "id": "A6",
+      "scenario": "Refresh valid deep link",
+      "account_key": "qa-helper-a",
+      "role": "helper",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "occurrence": "a1111111-1111-4111-8111-111111111101"
+      },
+      "actions": ["Navigate /?task=<id>", "Hard refresh"],
+      "side_effects": ["none expected beyond session reads"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "none"
+    },
+    {
+      "id": "A7",
+      "scenario": "Sign in with intended deep link returns to correct task",
+      "account_key": "qa-helper-a",
+      "role": "helper",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "occurrence": "a1111111-1111-4111-8111-111111111101"
+      },
+      "actions": ["Sign out", "Visit /?task=<id>", "Complete sign-in"],
+      "side_effects": ["auth session only"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "none"
+    },
+    {
+      "id": "A8",
+      "scenario": "Close TaskDetail then refresh must not reopen",
+      "account_key": "qa-helper-a",
+      "role": "helper",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "occurrence": "a1111111-1111-4111-8111-111111111101"
+      },
+      "actions": ["Open deep link", "Close sheet", "Refresh"],
+      "side_effects": ["none"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "none"
+    },
+    {
+      "id": "A9",
+      "scenario": "Invalid task ID fails safely",
+      "account_key": "qa-helper-a",
+      "role": "helper",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "fake_id": "00000000-0000-4000-8000-000000000099"
+      },
+      "actions": ["Open /?task=<fake>"],
+      "side_effects": ["none"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "none"
+    },
+    {
+      "id": "A10",
+      "scenario": "Unauthorized other-household task ID fails safely",
+      "account_key": "qa-helper-a",
+      "role": "helper",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "other_hh_occurrence": "b2222222-2222-4222-8222-222222222201",
+        "other_household_id": "e254fc7f-7a26-432a-8060-1cf17d55c189"
+      },
+      "actions": ["Open /?task=<B occurrence> while active HH is A"],
+      "side_effects": ["none; must not show B titles"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "none"
+    },
+    {
+      "id": "B1",
+      "scenario": "Sign out A, sign in B — no old HH/task data",
+      "account_keys": ["qa-helper-a", "qa-helper-b"],
+      "household_ids": [
+        "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+        "e254fc7f-7a26-432a-8060-1cf17d55c189"
+      ],
+      "actions": ["As A browse Today/Calendar/History/notifs", "Sign out", "Sign in B", "Inspect same views"],
+      "side_effects": ["session only"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "none"
+    },
+    {
+      "id": "B2",
+      "scenario": "Pending writes do not replay under another account",
+      "account_keys": ["qa-helper-a", "qa-helper-b"],
+      "household_ids": [
+        "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+        "e254fc7f-7a26-432a-8060-1cf17d55c189"
+      ],
+      "existing_record_ids": null,
+      "proposed_qa_records": ["disposable occurrence in HH A for offline edit"],
+      "actions": ["As A queue offline mutation", "Sign out with discard confirm OR switch path under test", "Sign in B go online"],
+      "side_effects": ["If discard fails incorrectly, could write — disposable only"],
+      "touches_real_household_data": false,
+      "reversible": "depends",
+      "cleanup_proposal": "Revert disposable occurrence; NOT authorized"
+    },
+    {
+      "id": "B3",
+      "scenario": "Cancel sign-out when pending > 0",
+      "account_key": "qa-helper-a",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "proposed_qa_records": ["local pending queue item only (DevTools or offline)"],
+      "actions": ["Sign out → Cancel"],
+      "side_effects": ["local only"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "discard local queue; NOT authorized as cleanup step until approved"
+    },
+    {
+      "id": "B4",
+      "scenario": "Discard pending and sign out",
+      "account_key": "qa-helper-a",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "actions": ["Sign out → OK discard"],
+      "side_effects": ["local queue discard; no server write if discard before flush"],
+      "touches_real_household_data": false,
+      "reversible": false,
+      "irreversible_notes": "local pending work discarded",
+      "cleanup_proposal": "none"
+    },
+    {
+      "id": "B5",
+      "scenario": "Old requests do not repopulate UI after switch",
+      "account_keys": ["qa-helper-a", "qa-helper-b"],
+      "actions": ["Rapid A→B while Today loading"],
+      "side_effects": ["session"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "none"
+    },
+    {
+      "id": "B6",
+      "scenario": "Removed member cannot access or replay writes",
+      "account_key": "qa-removed-helper-a",
+      "role": "helper(removed)",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "proposed_qa_records": ["optional local queue scoped to HH A for removed user"],
+      "actions": ["Sign in", "Inspect Today", "If queue present go online"],
+      "side_effects": ["attempted writes exercise RLS — disposable only"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "clear local queue; NOT authorized"
+    },
+    {
+      "id": "C1",
+      "scenario": "Reconnect refreshes membership/member lists",
+      "account_key": "qa-owner-a",
+      "role": "owner",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "actions": ["Open Household", "Offline→online"],
+      "side_effects": ["reads only"],
+      "touches_real_household_data": false,
+      "reversible": true,
+      "cleanup_proposal": "none"
+    },
+    {
+      "id": "C2",
+      "scenario": "Reconnect does not duplicate writes/subscriptions",
+      "account_key": "qa-helper-a",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "proposed_qa_records": ["disposable occurrence for single offline update"],
+      "actions": ["Queue one offline update", "Go online once"],
+      "side_effects": ["one DB write on flush"],
+      "touches_real_household_data": false,
+      "reversible": "partially",
+      "cleanup_proposal": "revert disposable occurrence; NOT authorized"
+    },
+    {
+      "id": "C3",
+      "scenario": "Reading a notification does not acknowledge the task",
+      "account_key": "qa-helper-a",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "notification": "f1111111-1111-4111-8111-111111111101",
+        "occurrence": "a1111111-1111-4111-8111-111111111101"
+      },
+      "actions": ["Mark/read notification without completing task"],
+      "side_effects": ["notification read_at write; task status must stay unchanged"],
+      "touches_real_household_data": false,
+      "reversible": "partially",
+      "cleanup_proposal": "reset notification read_at; NOT authorized"
+    },
+    {
+      "id": "C4",
+      "scenario": "Opening TaskDetail does not acknowledge the task",
+      "account_key": "qa-helper-a",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "occurrence": "a1111111-1111-4111-8111-111111111101"
+      },
+      "actions": ["Open detail", "Close without complete"],
+      "side_effects": ["may write comment_reads if comments auto-marked"],
+      "touches_real_household_data": false,
+      "reversible": "partially",
+      "cleanup_proposal": "none / receipt cleanup NOT authorized"
+    },
+    {
+      "id": "C5",
+      "scenario": "Per-user comment read receipts remain independent",
+      "account_keys": ["qa-helper-a", "qa-employer-a"],
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "existing_record_ids": {
+        "occurrence": "a1111111-1111-4111-8111-111111111101",
+        "comments": [
+          "c1111111-1111-4111-8111-111111111101",
+          "c1111111-1111-4111-8111-111111111102"
+        ]
+      },
+      "actions": ["A reads comments", "B still unread"],
+      "side_effects": ["comment_reads for A only"],
+      "touches_real_household_data": false,
+      "reversible": "partially",
+      "cleanup_proposal": "delete A receipts; NOT authorized"
+    },
+    {
+      "id": "C6",
+      "scenario": "Unread counts update correctly",
+      "account_key": "qa-helper-a",
+      "household_id": "9aebc0cd-3388-4cc9-8630-530cc6e89185",
+      "actions": ["Read one notif/comments", "Observe badges"],
+      "side_effects": ["notification and/or comment_reads writes"],
+      "touches_real_household_data": false,
+      "reversible": "partially",
+      "cleanup_proposal": "reset reads; NOT authorized"
+    }
+  ],
+  "constraints": [
+    "Only QA Household A/B",
+    "No non-QA households",
+    "No account creation / migrations / cleanup unless separately approved",
+    "No merge main / production deploy",
+    "Treat opening task/comment as potentially mutating"
+  ]
+}

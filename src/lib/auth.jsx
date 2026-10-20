@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import { supabase } from './supabase'
@@ -11,7 +12,10 @@ import { mapAuthError } from './constants'
 import {
   clearSessionLocalState,
   countPendingForUser,
+  countQuarantined,
+  discardQuarantined,
 } from './sessionLocalState'
+import { bumpSessionEpoch } from './sessionEpoch'
 
 const AuthContext = createContext(null)
 
@@ -21,6 +25,8 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [authError, setAuthError] = useState(null)
+  const lastUserIdRef = useRef(undefined)
+  const explicitSignOutRef = useRef(false)
 
   const refreshProfile = useCallback(async (uid) => {
     if (!uid) {
@@ -41,21 +47,43 @@ export function AuthProvider({ children }) {
       if (!mounted) return
       setSession(data.session)
       setUser(data.session?.user ?? null)
+      lastUserIdRef.current = data.session?.user?.id ?? null
       setLoading(false)
       if (data.session?.user) refreshProfile(data.session.user.id)
     })
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, next) => {
+      const nextUser = next?.user ?? null
+      const nextId = nextUser?.id ?? null
+      const prevId = lastUserIdRef.current
+
       setSession(next)
-      setUser(next?.user ?? null)
-      if (event === 'SIGNED_OUT') {
+      setUser(nextUser)
+
+      if (event === 'SIGNED_OUT' || (!nextUser && prevId)) {
+        // Cover Settings signOut and external session loss (expired / other tab).
+        // explicitSignOut already cleared queue+prefs; still bump/clear idempotently.
+        if (!explicitSignOutRef.current) {
+          clearSessionLocalState(prevId || null, { discardQueue: true })
+        } else {
+          bumpSessionEpoch('SIGNED_OUT')
+        }
+        explicitSignOutRef.current = false
         setProfile(null)
-      } else if (next?.user) {
-        refreshProfile(next.user.id)
+      } else if (nextUser && prevId && nextId !== prevId) {
+        // Account switch without an intervening SIGNED_OUT (rare) — isolate.
+        clearSessionLocalState(prevId, { discardQueue: true })
+        refreshProfile(nextId)
+      } else if (nextUser) {
+        if (prevId !== nextId) bumpSessionEpoch('user_change')
+        refreshProfile(nextId)
       }
+
       if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
         setAuthError(null)
       }
+
+      lastUserIdRef.current = nextId
     })
 
     return () => {
@@ -91,6 +119,7 @@ export function AuthProvider({ children }) {
   const signOut = useCallback(async (opts = {}) => {
     const { discardPending = true } = opts
     const uid = user?.id || null
+    explicitSignOutRef.current = true
     clearSessionLocalState(uid, { discardQueue: discardPending })
     await supabase.auth.signOut()
     setProfile(null)
@@ -99,6 +128,10 @@ export function AuthProvider({ children }) {
   const pendingQueueCount = useCallback(() => {
     return countPendingForUser(user?.id || null)
   }, [user?.id])
+
+  const quarantinedQueueCount = useCallback(() => countQuarantined(), [])
+
+  const discardQuarantinedQueue = useCallback(() => discardQuarantined(), [])
 
   const updateProfile = useCallback(
     async (patch) => {
@@ -127,6 +160,8 @@ export function AuthProvider({ children }) {
       signInWithMagicLink,
       signOut,
       pendingQueueCount,
+      quarantinedQueueCount,
+      discardQuarantinedQueue,
       updateProfile,
       refreshProfile,
       isAuthenticated: !!session?.user,
@@ -140,6 +175,8 @@ export function AuthProvider({ children }) {
       signInWithMagicLink,
       signOut,
       pendingQueueCount,
+      quarantinedQueueCount,
+      discardQuarantinedQueue,
       updateProfile,
       refreshProfile,
     ],

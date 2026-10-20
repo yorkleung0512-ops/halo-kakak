@@ -27,7 +27,6 @@ function loadAll() {
     migrateV1()
     const raw = localStorage.getItem(QUEUE_KEY_V2)
     if (raw) return JSON.parse(raw)
-    // fallback read v1 without migrate race
     const v1 = localStorage.getItem(QUEUE_KEY_V1)
     return v1 ? JSON.parse(v1) : []
   } catch {
@@ -45,19 +44,36 @@ function saveAll(items) {
 }
 
 /**
+ * Ownership trust requires BOTH non-empty userId and householdId stamps
+ * on the queue entry itself. payload.household_id alone is NOT enough.
+ */
+export function isTrustedScope(m) {
+  return !!(
+    m &&
+    typeof m.userId === 'string' &&
+    m.userId.length > 0 &&
+    typeof m.householdId === 'string' &&
+    m.householdId.length > 0
+  )
+}
+
+export function isQuarantined(m) {
+  return !isTrustedScope(m)
+}
+
+/**
  * @param {object} mutation
  * @param {{ userId?: string, householdId?: string }} [scope]
  */
 export function enqueueMutation(mutation, scope = {}) {
+  const userId = scope.userId || mutation.userId || null
+  // Prefer explicit scope / stamp; do not treat payload.household_id as ownership trust.
+  const householdId = scope.householdId || mutation.householdId || null
   const q = loadAll()
   q.push({
     ...mutation,
-    userId: scope.userId || mutation.userId || null,
-    householdId:
-      scope.householdId ||
-      mutation.householdId ||
-      mutation.payload?.household_id ||
-      null,
+    userId,
+    householdId,
     id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     queuedAt: new Date().toISOString(),
   })
@@ -66,21 +82,41 @@ export function enqueueMutation(mutation, scope = {}) {
 }
 
 /**
- * Peek queue, optionally scoped to user + household.
- * Unscoped items (legacy) are included when scope matches household on payload.
+ * Peek flushable queue items for a scope.
+ * Only trusted entries that match userId + householdId are returned.
+ * Quarantined (legacy / incomplete ownership) are never included.
  */
 export function peekQueue(scope = null) {
-  const q = loadAll()
+  const q = loadAll().filter(isTrustedScope)
   if (!scope?.userId && !scope?.householdId) return q
   return q.filter((m) => {
-    if (scope.userId && m.userId && m.userId !== scope.userId) return false
-    const hh =
-      m.householdId || m.payload?.household_id || null
-    if (scope.householdId && hh && hh !== scope.householdId) return false
-    // Legacy items without userId: include if household matches or unknown
-    if (scope.userId && m.userId && m.userId !== scope.userId) return false
+    if (scope.userId && m.userId !== scope.userId) return false
+    if (scope.householdId && m.householdId !== scope.householdId) return false
     return true
   })
+}
+
+/**
+ * Quarantined entries (missing trustworthy userId and/or householdId).
+ * Do not render sensitive payload contents from these in UI badges.
+ */
+export function listQuarantined() {
+  return loadAll().filter(isQuarantined)
+}
+
+export function countQuarantined() {
+  return listQuarantined().length
+}
+
+/**
+ * Explicit discard of quarantined legacy items. Never called by flush.
+ */
+export function discardQuarantined() {
+  const all = loadAll()
+  const kept = all.filter(isTrustedScope)
+  const removed = all.length - kept.length
+  saveAll(kept)
+  return removed
 }
 
 export function clearQueueItem(id) {
@@ -88,7 +124,7 @@ export function clearQueueItem(id) {
 }
 
 /**
- * Task ids with pending offline mutations (for UI badges).
+ * Task ids with pending offline mutations (trusted scoped only).
  */
 export function pendingTaskIds(scope = null) {
   const set = new Set()
@@ -99,21 +135,27 @@ export function pendingTaskIds(scope = null) {
 }
 
 /**
- * Process offline mutations. handler(mutation) should throw on failure.
+ * Process offline mutations. Quarantined items are never passed to handler;
+ * they remain in storage until explicit discardQuarantined().
  * @param {(m: object) => Promise<void>} handler
- * @param {{ userId?: string, householdId?: string }} [scope] — if set, only flush matching
+ * @param {{ userId?: string, householdId?: string }} [scope]
  */
 export async function flushQueue(handler, scope = null) {
   const all = loadAll()
   const remaining = []
   let flushed = 0
+  let skippedQuarantined = 0
   for (const m of all) {
-    if (scope?.userId && m.userId && m.userId !== scope.userId) {
+    if (!isTrustedScope(m)) {
+      remaining.push(m)
+      skippedQuarantined += 1
+      continue
+    }
+    if (scope?.userId && m.userId !== scope.userId) {
       remaining.push(m)
       continue
     }
-    const hh = m.householdId || m.payload?.household_id || null
-    if (scope?.householdId && hh && hh !== scope.householdId) {
+    if (scope?.householdId && m.householdId !== scope.householdId) {
       remaining.push(m)
       continue
     }
@@ -125,7 +167,7 @@ export async function flushQueue(handler, scope = null) {
     }
   }
   saveAll(remaining)
-  return { flushed, remaining: remaining.length }
+  return { flushed, remaining: remaining.length, skippedQuarantined }
 }
 
 export function loadQueue() {
@@ -133,26 +175,31 @@ export function loadQueue() {
 }
 
 /**
- * Count queue items that would run for this user on a shared device
- * (owned by userId, or legacy unscoped items).
+ * Count trusted items owned by this user (flushable for them).
+ * Quarantined legacy is NOT counted as flushable for any user.
  */
 export function countPendingForUser(userId) {
   const all = loadAll()
-  if (!userId) return all.length
-  return all.filter((m) => !m.userId || m.userId === userId).length
+  if (!userId) return all.filter(isTrustedScope).length
+  return all.filter((m) => isTrustedScope(m) && m.userId === userId).length
 }
 
 /**
- * On sign-out: drop this user's items and any legacy unscoped items
- * so they cannot replay under another account. Keep other users' scoped items.
+ * On sign-out: drop this user's trusted items.
+ * Quarantined legacy remains until explicit discard (do not silently discard
+ * pending work) but cannot replay under another account (flush skips them).
  */
 export function discardQueueOnSignOut(userId) {
   const all = loadAll()
   if (!userId) {
-    saveAll([])
-    return all.length
+    // Keep quarantined; drop all trusted (no owner to attribute).
+    const kept = all.filter(isQuarantined)
+    saveAll(kept)
+    return all.length - kept.length
   }
-  const kept = all.filter((m) => m.userId && m.userId !== userId)
+  const kept = all.filter(
+    (m) => isQuarantined(m) || (isTrustedScope(m) && m.userId !== userId),
+  )
   saveAll(kept)
   return all.length - kept.length
 }

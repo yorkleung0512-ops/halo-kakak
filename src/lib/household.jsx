@@ -14,6 +14,7 @@ import {
   STORAGE_ACTIVE_HOUSEHOLD,
   STORAGE_PREVIEW_HELPER,
 } from './sessionLocalState'
+import { bumpSessionEpoch, getSessionEpoch } from './sessionEpoch'
 
 const HouseholdContext = createContext(null)
 
@@ -121,6 +122,8 @@ export function HouseholdProvider({ children }) {
   }, [user, loadMemberships])
 
   const loadGlossary = useCallback(async (hhId) => {
+    const gen = loadGenRef.current
+    const epoch = getSessionEpoch()
     if (!hhId) {
       setGlossary([])
       return
@@ -130,6 +133,8 @@ export function HouseholdProvider({ children }) {
       .select('*')
       .eq('household_id', hhId)
       .order('chinese_term')
+    if (gen !== loadGenRef.current) return
+    if (getSessionEpoch() !== epoch) return
     setGlossary(data || [])
   }, [])
 
@@ -142,6 +147,13 @@ export function HouseholdProvider({ children }) {
     (householdId) => {
       const m = memberships.find((r) => r.householdId === householdId)
       if (!m) return
+      if (household?.id && household.id !== householdId) {
+        bumpSessionEpoch('household_switch')
+        loadGenRef.current += 1
+        setGlossary([])
+      } else if (!household?.id) {
+        bumpSessionEpoch('household_select')
+      }
       setHousehold(m.household)
       setRole(m.role)
       try {
@@ -150,7 +162,7 @@ export function HouseholdProvider({ children }) {
         /* ignore */
       }
     },
-    [memberships],
+    [memberships, household?.id],
   )
 
   const createHousehold = useCallback(
@@ -211,6 +223,40 @@ export function HouseholdProvider({ children }) {
     }
   }, [user?.id])
 
+  /**
+   * Server-path check: is the authenticated user an active member of householdId?
+   * Used before offline queue replay. RLS remains authoritative on writes.
+   */
+  const verifyActiveMembership = useCallback(
+    async (householdId, expectedUserId) => {
+      if (!householdId || !expectedUserId) {
+        return { ok: false, reason: 'missing_ids' }
+      }
+      const { data: authData, error: authErr } = await supabase.auth.getUser()
+      if (authErr || !authData?.user) {
+        return { ok: false, reason: 'auth_unavailable' }
+      }
+      if (authData.user.id !== expectedUserId) {
+        return { ok: false, reason: 'auth_mismatch' }
+      }
+      const { data, error } = await supabase
+        .from('household_members')
+        .select('household_id, status')
+        .eq('user_id', expectedUserId)
+        .eq('household_id', householdId)
+        .eq('status', 'active')
+        .maybeSingle()
+      if (error) {
+        return { ok: false, reason: 'membership_query_failed' }
+      }
+      if (!data) {
+        return { ok: false, reason: 'not_active_member' }
+      }
+      return { ok: true }
+    },
+    [],
+  )
+
   const isEmployerSide = role === 'owner' || role === 'employer'
   const effectiveIsHelper = role === 'helper' || (isEmployerSide && previewHelper)
 
@@ -233,6 +279,7 @@ export function HouseholdProvider({ children }) {
       effectiveIsHelper,
       canManageMembers: role === 'owner',
       canEditTasks: isEmployerSide,
+      verifyActiveMembership,
     }),
     [
       memberships,
@@ -250,6 +297,7 @@ export function HouseholdProvider({ children }) {
       setPreview,
       isEmployerSide,
       effectiveIsHelper,
+      verifyActiveMembership,
     ],
   )
 
