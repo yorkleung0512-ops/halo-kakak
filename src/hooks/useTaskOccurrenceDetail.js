@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   clearDeepLinkParams,
@@ -17,6 +17,9 @@ export function useTaskOccurrenceDetail({ householdId } = {}) {
   const [detailError, setDetailError] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const genRef = useRef(0)
+  // Blocks deep-link effect reopen while closeDetail has cleared task
+  // state but React Router has not yet flushed the cleared ?task= param.
+  const closingDeepLinkRef = useRef(null)
 
   const clearTaskParams = useCallback(() => {
     const next = clearDeepLinkParams(searchParams)
@@ -25,13 +28,23 @@ export function useTaskOccurrenceDetail({ householdId } = {}) {
     if (cur !== nxt) setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
+  // Once ?task= is gone, allow future deep links / opens again.
+  useEffect(() => {
+    if (!searchParams.get('task')) {
+      closingDeepLinkRef.current = null
+    }
+  }, [searchParams])
+
   const closeDetail = useCallback(() => {
+    const taskId = searchParams.get('task')
+    if (taskId) closingDeepLinkRef.current = taskId
+    genRef.current += 1
     setDetailTask(null)
     setDetailTemplate(null)
     setDetailError(null)
     setDetailLoading(false)
     clearTaskParams()
-  }, [clearTaskParams])
+  }, [clearTaskParams, searchParams])
 
   const loadTemplate = useCallback(async (templateId, gen) => {
     if (!templateId) {
@@ -50,7 +63,17 @@ export function useTaskOccurrenceDetail({ householdId } = {}) {
   }, [])
 
   const openTaskById = useCallback(
-    async (id, { fromList = null } = {}) => {
+    async (id, { fromList = null, force = false } = {}) => {
+      if (
+        !force &&
+        id &&
+        closingDeepLinkRef.current === id &&
+        searchParams.get('task') === id
+      ) {
+        return { ok: false, reason: 'closing' }
+      }
+      if (force) closingDeepLinkRef.current = null
+
       const gen = ++genRef.current
       setDetailError(null)
       setDetailLoading(true)
@@ -85,13 +108,13 @@ export function useTaskOccurrenceDetail({ householdId } = {}) {
       loadTemplate(resolved.task.template_id, gen)
       return { ok: true, task: resolved.task }
     },
-    [householdId, loadTemplate],
+    [householdId, loadTemplate, searchParams],
   )
 
   const openTaskRow = useCallback(
     (row) => {
       if (!row?.id) return openTaskById(null)
-      return openTaskById(row.id, { fromList: row })
+      return openTaskById(row.id, { fromList: row, force: true })
     },
     [openTaskById],
   )

@@ -2,6 +2,14 @@
 const CACHE = 'halo-kakak-shell-v1'
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg']
 
+function offlineFallback() {
+  return new Response('Offline', {
+    status: 503,
+    statusText: 'Service Unavailable',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  })
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()),
@@ -44,7 +52,9 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE).then((c) => c.put('/index.html', copy))
           return res
         })
-        .catch(() => caches.match('/index.html')),
+        .catch(() =>
+          caches.match('/index.html').then((cached) => cached || offlineFallback()),
+        ),
     )
     return
   }
@@ -61,7 +71,7 @@ self.addEventListener('fetch', (event) => {
             }
             return res
           })
-          .catch(() => cached)
+          .catch(() => cached || offlineFallback())
         return cached || fetched
       }),
     )

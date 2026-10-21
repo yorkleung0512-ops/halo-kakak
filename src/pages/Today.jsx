@@ -49,6 +49,7 @@ import CompletedSection from '../components/today/CompletedSection'
 import OverdueSection from '../components/today/OverdueSection'
 import TaskDetailSheet from '../components/today/TaskDetailSheet'
 import { useTaskOccurrenceDetail } from '../hooks/useTaskOccurrenceDetail'
+import { shouldSkipDeepLinkReopen } from '../lib/taskDetailAccess'
 import { getSessionEpoch, subscribeSessionEpoch } from '../lib/sessionEpoch'
 
 const TASK_CHANNEL_PREFIX = 'hola-kakak-today-tasks-'
@@ -328,13 +329,15 @@ export default function Today() {
   }, [loadTasks])
 
   // Deep link: resolve occurrence by ID (not limited to today's list)
+  // Skip reopen while the same deepTaskId remains in the URL after close
+  // (closeDetail clears detailTask before search params may flush — A8).
   useEffect(() => {
     if (!deepTaskId) {
       deepHandledRef.current = null
       return
     }
     if (loading) return
-    if (deepHandledRef.current === deepTaskId && detailTask?.id === deepTaskId) {
+    if (shouldSkipDeepLinkReopen(deepTaskId, deepHandledRef.current)) {
       return
     }
     let cancelled = false
@@ -348,7 +351,7 @@ export default function Today() {
           .getElementById(`task-${deepTaskId}`)
           ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }
-      if (!result.ok && result.reason !== 'stale') {
+      if (!result.ok && result.reason !== 'stale' && result.reason !== 'closing') {
         showToast(
           effectiveIsHelper
             ? 'Tugas tidak tersedia'
@@ -368,7 +371,6 @@ export default function Today() {
     closeDetail,
     showToast,
     effectiveIsHelper,
-    detailTask?.id,
   ])
 
   // Offline flush + visibility refetch

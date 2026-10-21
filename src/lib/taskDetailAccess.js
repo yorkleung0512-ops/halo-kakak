@@ -58,6 +58,20 @@ export function clearDeepLinkParams(params) {
   return next
 }
 
+/**
+ * Today deep-link effect: once deepTaskId was handled, do not call open
+ * again while the same query param is still present. closeDetail() clears
+ * detailTask before React Router may have flushed the cleared search
+ * params; requiring detailTask to still match caused a reopen race (A8).
+ * @param {string|null|undefined} deepTaskId
+ * @param {string|null|undefined} deepHandledId
+ * @returns {boolean}
+ */
+export function shouldSkipDeepLinkReopen(deepTaskId, deepHandledId) {
+  if (!deepTaskId) return true
+  return deepHandledId === deepTaskId
+}
+
 export const PENDING_DEEP_LINK_KEY = 'halo-kakak-pending-deep-link'
 
 export function storePendingDeepLink(pathWithSearch) {

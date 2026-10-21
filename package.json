@@ -13,8 +13,10 @@
     "test:notifications": "node scripts/notifications-unit.mjs",
     "test:today": "node scripts/today-unit.mjs",
     "test:comment-reads": "node scripts/comment-reads-unit.mjs",
-    "test:phase1": "node scripts/phase1-unit.mjs && node scripts/phase1-isolation-unit.mjs",
-    "test:phase1-isolation": "node scripts/phase1-isolation-unit.mjs"
+    "test:phase1": "node scripts/phase1-unit.mjs && node scripts/phase1-isolation-unit.mjs && node scripts/a8-close-guard-unit.mjs && node scripts/sw-fallback-unit.mjs",
+    "test:phase1-isolation": "node scripts/phase1-isolation-unit.mjs",
+    "test:a8-close-guard": "node scripts/a8-close-guard-unit.mjs",
+    "test:sw-fallback": "node scripts/sw-fallback-unit.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

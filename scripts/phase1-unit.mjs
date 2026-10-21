@@ -4,6 +4,7 @@ import {
   resolveDeepLinkTask,
   clearDeepLinkParams,
   sanitizeInternalPath,
+  shouldSkipDeepLinkReopen,
 } from '../src/lib/taskDetailAccess.js'
 import {
   enqueueMutation,
@@ -56,6 +57,14 @@ assert.equal(isTaskOccurrenceId(null), false)
   assert.equal(r.ok, true)
 }
 assert.equal(resolveDeepLinkTask(null, 'hh-a').ok, false)
+
+
+// A8: after a deep link was handled, do not reopen while ?task= still present
+// (close clears detailTask before search params may flush).
+assert.equal(shouldSkipDeepLinkReopen(null, 'abc'), true)
+assert.equal(shouldSkipDeepLinkReopen('abc', 'abc'), true)
+assert.equal(shouldSkipDeepLinkReopen('abc', null), false)
+assert.equal(shouldSkipDeepLinkReopen('abc', 'other'), false)
 
 // Clear params — closed detail must not reopen on refresh
 {
