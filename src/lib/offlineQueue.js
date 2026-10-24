@@ -10,7 +10,9 @@ function migrateV1() {
       localStorage.removeItem(QUEUE_KEY_V1)
       return
     }
-    const current = loadAll()
+    const rawV2 = localStorage.getItem(QUEUE_KEY_V2)
+    const current = rawV2 === null ? [] : JSON.parse(rawV2)
+    if (!Array.isArray(current)) return
     const merged = [...current]
     for (const m of legacy) {
       if (!merged.some((x) => x.id === m.id)) merged.push(m)
