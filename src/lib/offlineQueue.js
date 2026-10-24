@@ -107,25 +107,25 @@ export function pendingTaskIds(scope = null) {
  */
 export async function flushQueue(handler, scope = null) {
   const all = loadAll()
-  const remaining = []
+  const succeededIds = new Set()
   let flushed = 0
   for (const m of all) {
     if (scope?.userId && m.userId && m.userId !== scope.userId) {
-      remaining.push(m)
       continue
     }
     const hh = m.householdId || m.payload?.household_id || null
     if (scope?.householdId && hh && hh !== scope.householdId) {
-      remaining.push(m)
       continue
     }
     try {
       await handler(m)
+      succeededIds.add(m.id)
       flushed += 1
     } catch {
-      remaining.push(m)
+      /* retain failed items in the latest queue */
     }
   }
+  const remaining = loadAll().filter((m) => !succeededIds.has(m.id))
   saveAll(remaining)
   return { flushed, remaining: remaining.length }
 }
