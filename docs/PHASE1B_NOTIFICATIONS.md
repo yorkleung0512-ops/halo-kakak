@@ -17,7 +17,7 @@
 ## Realtime
 
 1. Migration `20261019210000_phase1b_notifications_realtime.sql` adds `public.notifications` to `supabase_realtime` and sets `REPLICA IDENTITY FULL`.
-2. Client: one channel `hola-kakak-notif-<userId>` with `postgres_changes` **INSERT** (+ UPDATE) filtered by `recipient_user_id=eq.<uid>`.
+2. Client: one channel `halo-kakak-notif-<userId>` with `postgres_changes` **INSERT** (+ UPDATE) filtered by `recipient_user_id=eq.<uid>`.
 3. RLS still applies; users only receive their rows.
 4. Cleanup: `removeChannel` on unmount / user change / sign-out (`isAuthenticated` false clears state).
 5. No duplicate subs: single `channelRef`; recreated only when user id changes.

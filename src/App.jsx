@@ -44,13 +44,13 @@ function Shell({ children }) {
             </div>
             <div className="min-w-0 flex-1">
               <h1 className="text-base font-bold text-slate-900">
-                Hola-Kakak
+                Halo Kakak
               </h1>
               <p className="truncate text-xs text-slate-500">
                 {household?.name ||
                   (effectiveIsHelper
                     ? 'Manajer Rumah Tangga'
-                    : 'Hola-Kakak · 雙語家務')}
+                    : 'Halo Kakak · 雙語家務')}
               </p>
             </div>
             <NotificationBell />

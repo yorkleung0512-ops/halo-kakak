@@ -5,10 +5,27 @@ import { supabase } from '../lib/supabase'
 import { useState } from 'react'
 import HouseholdPresetsManager from '../components/presets/HouseholdPresetsManager'
 
+/** Public support contact until in-app ownership transfer exists. */
+const SUPPORT_ISSUE_URL =
+  'https://github.com/yorkleung0512-ops/halo-kakak/issues/new'
+
+const ROLE_LABEL = {
+  owner: { zh: '擁有者', id: 'Pemilik' },
+  employer: { zh: '僱主', id: 'Majikan' },
+  helper: { zh: '幫手', id: 'Asisten' },
+}
+
 export default function Settings() {
   const { user, profile, signOut, updateProfile } = useAuth()
-  const { household, role, effectiveIsHelper, memberships, glossary, ensureToday } =
-    useHousehold()
+  const {
+    household,
+    role,
+    effectiveIsHelper,
+    memberships,
+    glossary,
+    ensureToday,
+    selectHousehold,
+  } = useHousehold()
   const [name, setName] = useState(profile?.display_name || '')
   const [msg, setMsg] = useState('')
 
@@ -59,7 +76,11 @@ export default function Settings() {
   async function leaveHousehold() {
     if (!household?.id) return
     if (role === 'owner') {
-      setMsg('Owner 請先移交或聯絡支援先離開')
+      setMsg(
+        effectiveIsHelper
+          ? 'Pemilik belum bisa keluar di aplikasi. Transfer kepemilikan belum tersedia — buka isu dukungan.'
+          : '擁有者暫時無法喺 App 內離開。尚未支援移交擁有權 — 請開支援 Issue。',
+      )
       return
     }
     if (!confirm(effectiveIsHelper ? 'Keluar dari rumah tangga?' : '離開呢個家庭？'))
@@ -78,8 +99,8 @@ export default function Settings() {
     if (
       !confirm(
         effectiveIsHelper
-          ? 'Kirim permintaan hapus akun? Data akan ditinjau manual.'
-          : '要求刪除帳戶？我哋會人手處理。',
+          ? 'Ini HANYA mencatat permintaan. Akun belum dihapus. Lanjutkan?'
+          : '呢個只會記錄「刪除要求」，帳戶唔會即時刪除。繼續？',
       )
     )
       return
@@ -93,9 +114,15 @@ export default function Settings() {
     )
     setMsg(
       effectiveIsHelper
-        ? 'Permintaan tercatat. Hubungi dukungan untuk menyelesaikan.'
-        : '已記錄刪除要求。請電郵聯絡支援完成程序。',
+        ? 'Permintaan tercatat (belum dihapus). Buka isu dukungan untuk menyelesaikan.'
+        : '已記錄刪除要求（帳戶仍在）。請開支援 Issue 完成人手處理。',
     )
+  }
+
+  function roleLabel(r) {
+    const meta = ROLE_LABEL[r]
+    if (!meta) return r
+    return effectiveIsHelper ? meta.id : meta.zh
   }
 
   return (
@@ -138,13 +165,58 @@ export default function Settings() {
         <h2 className="mb-2 font-bold">
           {effectiveIsHelper ? 'Keanggotaan' : '家庭成員身分'}
         </h2>
+        {memberships.length > 1 && (
+          <div className="mb-3">
+            <label
+              htmlFor="active-household"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
+              {effectiveIsHelper ? 'Rumah tangga aktif' : '目前家庭'}
+            </label>
+            <select
+              id="active-household"
+              value={household?.id || ''}
+              onChange={(e) => selectHousehold(e.target.value)}
+              className="w-full min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            >
+              {memberships.map((m) => (
+                <option key={m.householdId} value={m.householdId}>
+                  {m.household?.name || m.householdId} · {roleLabel(m.role)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <ul className="text-sm text-slate-700">
           {memberships.map((m) => (
             <li key={m.householdId}>
-              {m.household?.name} · {m.role}
+              {m.household?.name} · {roleLabel(m.role)}
+              {m.householdId === household?.id
+                ? effectiveIsHelper
+                  ? ' (aktif)'
+                  : '（目前）'
+                : ''}
             </li>
           ))}
         </ul>
+        {role === 'owner' && household && (
+          <div className="mt-3 space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+            <p lang="zh-Hant">
+              擁有者暫時無法離開家庭：App 內尚未支援移交擁有權。如需關閉家庭或移交，請開支援 Issue。
+            </p>
+            <p lang="id">
+              Pemilik belum bisa keluar: transfer kepemilikan belum ada di aplikasi. Untuk menutup atau mentransfer, buka isu dukungan.
+            </p>
+            <a
+              href={SUPPORT_ISSUE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center font-semibold text-teal-800 underline"
+            >
+              {effectiveIsHelper ? 'Buka isu dukungan' : '開支援 Issue'}
+            </a>
+          </div>
+        )}
         {role !== 'owner' && household && (
           <button
             type="button"
@@ -171,13 +243,13 @@ export default function Settings() {
           {effectiveIsHelper ? 'Privasi' : '私隱'}
         </h2>
         <Link className="block min-h-11 text-teal-800 underline" to="/privacy">
-          Privacy Policy
+          {effectiveIsHelper ? 'Kebijakan Privasi' : '私隱政策'}
         </Link>
         <Link className="block min-h-11 text-teal-800 underline" to="/pics">
           PICS
         </Link>
         <Link className="block min-h-11 text-teal-800 underline" to="/terms">
-          Terms
+          {effectiveIsHelper ? 'Syarat Layanan' : '服務條款'}
         </Link>
         <button
           type="button"
@@ -191,8 +263,23 @@ export default function Settings() {
           onClick={requestDelete}
           className="block min-h-11 w-full rounded-xl border border-rose-200 text-sm text-rose-700"
         >
-          {effectiveIsHelper ? 'Minta hapus akun' : '要求刪除帳戶'}
+          {effectiveIsHelper
+            ? 'Catat permintaan hapus akun'
+            : '登記刪除帳戶要求'}
         </button>
+        <p className="text-xs text-slate-500">
+          {effectiveIsHelper
+            ? 'Tombol ini tidak menghapus akun. Hanya mencatat permintaan untuk ditinjau manual.'
+            : '呢個掣唔會即時刪除帳戶，只會登記要求，等人手處理。'}
+        </p>
+        <a
+          href={SUPPORT_ISSUE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block min-h-11 text-sm text-teal-800 underline"
+        >
+          {effectiveIsHelper ? 'Isu dukungan (GitHub)' : '支援 Issue（GitHub）'}
+        </a>
       </section>
 
       <button

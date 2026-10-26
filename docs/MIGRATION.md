@@ -1,4 +1,4 @@
-# Hola-Kakak database migration guide
+# Halo Kakak database migration guide
 
 ## What changed
 

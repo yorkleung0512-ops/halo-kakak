@@ -21,7 +21,7 @@ import {
 
 const NotificationsContext = createContext(null)
 
-const CHANNEL_PREFIX = 'hola-kakak-notif-'
+const CHANNEL_PREFIX = 'halo-kakak-notif-'
 
 export function NotificationsProvider({ children }) {
   const { user, isAuthenticated } = useAuth()

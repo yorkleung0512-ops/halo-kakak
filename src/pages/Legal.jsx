@@ -5,14 +5,14 @@ const COPY = {
     titleZh: '私隱政策',
     titleId: 'Kebijakan Privasi',
     bodyZh: [
-      'Hola-Kakak 收集你嘅電郵、家庭成員關係、家務任務內容同狀態，用嚟提供雙語家務管理服務。',
+      'Halo Kakak 收集你嘅電郵、家庭成員關係、家務任務內容同狀態，用嚟提供雙語家務管理服務。',
       '翻譯請求會經我哋受保護嘅伺服器傳送至第三方翻譯服務；我哋唔會刻意將用戶或家庭識別碼傳送畀翻譯供應商。',
       '請勿喺任務入面輸入密碼、銀行資料或身份證號碼。',
       '你可以匯出可存取資料、要求刪除帳戶，或喺合適情況下離開家庭。',
       '資料存放於 Supabase（雲端資料庫），傳輸使用 HTTPS。',
     ],
     bodyId: [
-      'Hola-Kakak mengumpulkan email, hubungan anggota rumah tangga, serta isi dan status tugas untuk layanan manajemen rumah tangga dwibahasa.',
+      'Halo Kakak mengumpulkan email, hubungan anggota rumah tangga, serta isi dan status tugas untuk layanan manajemen rumah tangga dwibahasa.',
       'Permintaan terjemahan dikirim melalui server terlindungi ke layanan pihak ketiga; kami tidak sengaja mengirim ID pengguna atau rumah tangga ke penyedia terjemahan.',
       'Jangan masukkan kata sandi, data bank, atau nomor identitas dalam tugas.',
       'Anda dapat mengekspor data yang dapat diakses, meminta penghapusan akun, atau meninggalkan rumah tangga bila sesuai.',
