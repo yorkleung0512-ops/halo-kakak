@@ -272,7 +272,7 @@ export default function EditTaskModal({
             disabled={translating}
             className="min-h-11 rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-900 disabled:opacity-50"
           >
-            {translating ? '…' : '重新翻譯'}
+            {translating ? '翻譯中…' : '重新翻譯'}
           </button>
         )}
 
@@ -460,7 +460,7 @@ export default function EditTaskModal({
             onClick={save}
             className="min-h-11 flex-1 rounded-xl bg-teal-700 font-bold text-white disabled:opacity-50"
           >
-            {saving ? '…' : '儲存'}
+            {saving ? '儲存中…' : '儲存'}
           </button>
         </div>
       </div>

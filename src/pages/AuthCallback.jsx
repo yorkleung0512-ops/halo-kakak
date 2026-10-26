@@ -42,8 +42,16 @@ export default function AuthCallback() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center text-slate-500">
-      登入中…
+    <div
+      className="flex min-h-screen items-center justify-center text-slate-500"
+      role="status"
+      aria-busy="true"
+    >
+      <span lang="zh-Hant">登入中…</span>
+      <span className="mx-2 opacity-50" aria-hidden>
+        /
+      </span>
+      <span lang="id">Sedang masuk…</span>
     </div>
   )
 }

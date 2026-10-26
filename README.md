@@ -15,6 +15,10 @@
 5. 權限由 Supabase **RLS + RPC** 強制；前端顯示唔係安全邊界。
 6. 僱主可開「Preview helper view」（唯讀，唔改真實角色）。
 
+**邀請軟門禁（P2）**：加入家庭路徑必須帶合法 invite token（64-hex / ≥16 字）；`?invite=test` 等垃圾參數會被前端拒絕，唔會寫入 magic-link redirect。僱主首次開戶仍可唔經邀請直接 magic link + 建家庭。
+
+> **產品決策待定**：若要全面關閉「開放註冊」（magic link `shouldCreateUser` 只允許邀請或 allowlist），需要額外產品拍板；本 repo 未做硬封鎖。
+
 > `?room=` / `?mode=kakak` **唔再**當登入憑證。
 
 ## 環境變數
@@ -34,6 +38,18 @@ VITE_SUPABASE_ANON_KEY=<anon key>
 npm install
 npm run dev
 ```
+
+## CI / 單元測試
+
+GitHub Actions（`.github/workflows/ci.yml`）會跑 lint、現有 `scripts/*-unit.mjs`、同 production build。
+
+```bash
+npm run test:unit   # today + presets + notifications + comment-reads + invite-token
+npm run lint
+npm run build
+```
+
+React/E2E（Playwright 等）尚未接入 — 跟進時建議覆蓋 invite accept → membership reload、offline enqueue gate。
 
 ## 資料庫 migration
 

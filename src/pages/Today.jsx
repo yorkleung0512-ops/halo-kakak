@@ -43,6 +43,7 @@ import TodayTimeline from '../components/today/TodayTimeline'
 import CompletedSection from '../components/today/CompletedSection'
 import OverdueSection from '../components/today/OverdueSection'
 import TaskDetailSheet from '../components/today/TaskDetailSheet'
+import LoadingBlock from '../components/LoadingBlock'
 
 const TASK_CHANNEL_PREFIX = 'halo-kakak-today-tasks-'
 
@@ -663,7 +664,7 @@ export default function Today() {
       )}
 
       {loading ? (
-        <p className="text-center text-slate-500">…</p>
+        <LoadingBlock label="載入今日任務" labelId="Memuat tugas hari ini" />
       ) : effectiveIsHelper ? (
         <>
           <NewTasksSection

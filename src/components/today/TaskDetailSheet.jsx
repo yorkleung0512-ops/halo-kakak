@@ -412,7 +412,13 @@ export default function TaskDetailSheet({
           <div role="status" aria-live="polite" className="sr-only">
             {liveStatus}
           </div>
-          {loadingExtra && <p className="text-xs text-slate-400">…</p>}
+          {loadingExtra && (
+            <p className="text-xs text-slate-400" role="status" aria-busy="true">
+              <span lang="zh-Hant">載入留言…</span>
+              <span className="mx-1 opacity-50">/</span>
+              <span lang="id">Memuat komentar…</span>
+            </p>
+          )}
           {!loadingExtra && comments.length === 0 && (
             <p className="text-xs text-slate-400">
               {isHelper ? 'Belum ada komentar' : '暫無留言'}

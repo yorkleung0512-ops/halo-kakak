@@ -142,7 +142,15 @@ export default function NotificationCentre() {
         )}
 
         {loading && items.length === 0 ? (
-          <p className="py-8 text-center text-slate-500">…</p>
+          <div aria-busy="true" role="status" className="space-y-2 py-6">
+            <div className="h-12 animate-pulse rounded-2xl bg-slate-100" aria-hidden />
+            <div className="h-12 animate-pulse rounded-2xl bg-slate-100" aria-hidden />
+            <p className="text-center text-sm text-slate-500">
+              <span lang="zh-Hant">載入通知</span>
+              <span className="mx-1 opacity-50">/</span>
+              <span lang="id">Memuat notifikasi</span>
+            </p>
+          </div>
         ) : filtered.length === 0 ? (
           <p className="py-8 text-center text-slate-500">
             {tab === 'unread' ? L.emptyUnread : L.empty}
