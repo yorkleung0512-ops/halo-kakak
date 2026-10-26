@@ -35,7 +35,7 @@ export function HouseholdProvider({ children }) {
       setHousehold(null)
       setRole(null)
       setLoading(false)
-      return
+      return []
     }
     setLoading(true)
     const { data, error } = await supabase
@@ -48,7 +48,7 @@ export function HouseholdProvider({ children }) {
       console.warn('memberships', error.message)
       setMemberships([])
       setLoading(false)
-      return
+      return []
     }
 
     const rows = (data || [])
@@ -81,6 +81,7 @@ export function HouseholdProvider({ children }) {
       setRole(null)
     }
     setLoading(false)
+    return rows
   }, [user])
 
   useEffect(() => {

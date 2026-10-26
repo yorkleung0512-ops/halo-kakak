@@ -24,9 +24,14 @@ import {
   partitionTodayTasks,
   summarizeCounts,
   pickNextTask,
+  helperHeroEmptyKind,
   unreadAssignedTaskIds,
   aggregateCommentCounts,
 } from '../lib/todayClassify'
+import {
+  isLikelyOfflineError,
+  isVersionConflictError,
+} from '../lib/statusUpdateErrors'
 import {
   fetchUnreadCommentSummary,
   unreadCommentTaskIdsFromSummary,
@@ -519,6 +524,16 @@ export default function Today() {
     return pickNextTask(pool, classifyCtx)
   }, [effectiveIsHelper, sections, tasks, classifyCtx])
 
+  const heroEmptyKind = useMemo(
+    () =>
+      helperHeroEmptyKind({
+        heroTask,
+        tasks,
+        sections,
+      }),
+    [heroTask, tasks, sections],
+  )
+
   const timelineExcludeIds = useMemo(() => {
     const ids = new Set()
     for (const t of sections.needs_attention) ids.add(t.id)
@@ -569,34 +584,65 @@ export default function Today() {
       setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
       showToast(effectiveIsHelper ? 'Diperbarui' : '已更新')
     } catch (err) {
-      enqueueMutation(
-        {
-          type: 'update_task',
-          payload: {
-            id: task.id,
-            version: task.version,
-            patch,
-            comment: comment || null,
-            household_id: household.id,
+      if (isVersionConflictError(err)) {
+        try {
+          const { data: fresh } = await supabase
+            .from('task_occurrences')
+            .select('*')
+            .eq('id', task.id)
+            .maybeSingle()
+          if (fresh) {
+            setTasks((prev) =>
+              prev.map((t) => (t.id === fresh.id ? fresh : t)),
+            )
+          }
+        } catch {
+          /* ignore refetch failure */
+        }
+        showToast(
+          effectiveIsHelper
+            ? 'Status berubah, coba lagi'
+            : '狀態已變更，請重試',
+          true,
+        )
+        return
+      }
+
+      if (isLikelyOfflineError(err)) {
+        enqueueMutation(
+          {
+            type: 'update_task',
+            payload: {
+              id: task.id,
+              version: task.version,
+              patch,
+              comment: comment || null,
+              household_id: household.id,
+            },
           },
-        },
-        queueScope,
-      )
-      refreshPending()
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === task.id
-            ? { ...t, status: action.status, version: t.version }
-            : t,
-        ),
-      )
+          queueScope,
+        )
+        refreshPending()
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === task.id
+              ? { ...t, status: action.status, version: t.version }
+              : t,
+          ),
+        )
+        showToast(
+          effectiveIsHelper ? OFFLINE_MSG.id : OFFLINE_MSG.zh,
+          true,
+        )
+        return
+      }
+
       showToast(
-        effectiveIsHelper ? OFFLINE_MSG.id : OFFLINE_MSG.zh,
+        effectiveIsHelper
+          ? 'Gagal memperbarui status'
+          : '無法更新狀態，請稍後再試',
         true,
       )
-      if (err.message !== 'offline' && !String(err.message).includes('Failed')) {
-        /* version conflict etc. */
-      }
     }
   }
 
@@ -765,6 +811,7 @@ export default function Today() {
 
           <NextTaskHero
             task={heroTask}
+            emptyKind={heroEmptyKind || 'all_done'}
             deepTaskId={deepTaskId}
             canAct={!previewHelper}
             readOnly={previewHelper}

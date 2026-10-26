@@ -10,10 +10,15 @@ import {
   partitionTodayTasks,
   summarizeCounts,
   pickNextTask,
+  helperHeroEmptyKind,
   timelineGroups,
   unreadAssignedTaskIds,
   PRIMARY,
 } from '../src/lib/todayClassify.js'
+import {
+  isLikelyOfflineError,
+  isVersionConflictError,
+} from '../src/lib/statusUpdateErrors.js'
 import { formatRecurrence } from '../src/lib/recurrenceFormat.js'
 
 const HK_NOW = new Date('2026-10-19T04:00:00.000Z') // 12:00 HKT
@@ -371,6 +376,68 @@ assert.equal(isAdHoc(task({ template_id: 'tpl-1' })), false)
   assert.ok(groups.later.some((t) => t.id === 'l'))
   assert.ok(groups.no_time.some((t) => t.id === 'z'))
   assert.ok(groups.completed.some((t) => t.id === 'c'))
+}
+
+// P0: helper hero empty kind — never "all done" when New / Needs attention remain
+{
+  const pendingNew = task({
+    id: 'pn1',
+    status: 'pending',
+    assigned_to: 'helper-a',
+  })
+  const clarify = task({
+    id: 'cl1',
+    status: 'needs_clarification',
+    assigned_to: 'helper-a',
+  })
+  assert.equal(
+    helperHeroEmptyKind({
+      heroTask: null,
+      tasks: [pendingNew],
+      sections: { new_task: [pendingNew], needs_attention: [] },
+    }),
+    'focus_above',
+  )
+  assert.equal(
+    helperHeroEmptyKind({
+      heroTask: null,
+      tasks: [clarify],
+      sections: { new_task: [], needs_attention: [clarify] },
+    }),
+    'focus_above',
+  )
+  assert.equal(
+    helperHeroEmptyKind({ heroTask: null, tasks: [], sections: {} }),
+    'no_tasks',
+  )
+  assert.equal(
+    helperHeroEmptyKind({
+      heroTask: null,
+      tasks: [task({ id: 'done', status: 'completed' })],
+      sections: { new_task: [], needs_attention: [] },
+    }),
+    'all_done',
+  )
+  assert.equal(
+    helperHeroEmptyKind({
+      heroTask: pendingNew,
+      tasks: [pendingNew],
+      sections: { new_task: [pendingNew] },
+    }),
+    null,
+  )
+}
+
+// P0: status update error classification
+{
+  assert.equal(isLikelyOfflineError(new Error('offline'), true), true)
+  assert.equal(isLikelyOfflineError(new Error('Failed to fetch'), true), true)
+  assert.equal(isLikelyOfflineError(new Error('boom'), false), true)
+  assert.equal(isLikelyOfflineError(new Error('version conflict'), true), false)
+  assert.equal(isVersionConflictError({ message: 'version conflict', code: '40001' }), true)
+  assert.equal(isVersionConflictError(new Error('version conflict')), true)
+  assert.equal(isVersionConflictError(new Error('Failed to fetch')), false)
+  assert.equal(isVersionConflictError(new Error('RLS denied')), false)
 }
 
 console.log('All today unit tests passed')

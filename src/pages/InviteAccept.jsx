@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import { useHousehold } from '../lib/household'
 import { supabase } from '../lib/supabase'
 
 export default function InviteAccept() {
   const { token } = useParams()
   const { isAuthenticated, loading } = useAuth()
+  const { reload } = useHousehold()
   const navigate = useNavigate()
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -25,8 +27,8 @@ export default function InviteAccept() {
     const { error: err } = await supabase.rpc('accept_household_invite', {
       p_token: token,
     })
-    setBusy(false)
     if (err) {
+      setBusy(false)
       const msg = err.message || ''
       if (msg.includes('expired')) setError('邀請已過期 / Undangan kedaluwarsa')
       else if (msg.includes('used')) setError('邀請已使用 / Undangan sudah dipakai')
@@ -34,8 +36,25 @@ export default function InviteAccept() {
       else setError('無法加入 / Tidak dapat bergabung')
       return
     }
+
+    let rows = []
+    try {
+      rows = (await reload()) || []
+    } catch {
+      rows = []
+    }
+
+    if (!rows.length) {
+      // Context may still race; hard reload so ProtectedApp re-fetches memberships.
+      setDone(true)
+      setBusy(false)
+      window.location.replace(`${window.location.origin}/`)
+      return
+    }
+
     setDone(true)
-    setTimeout(() => navigate('/', { replace: true }), 1200)
+    setBusy(false)
+    setTimeout(() => navigate('/', { replace: true }), 800)
   }
 
   return (
