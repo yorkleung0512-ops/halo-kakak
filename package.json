@@ -14,7 +14,11 @@
     "test:today": "node scripts/today-unit.mjs",
     "test:comment-reads": "node scripts/comment-reads-unit.mjs",
     "test:invite-token": "node scripts/invite-token-unit.mjs",
-    "test:unit": "npm run test:today && npm run test:presets && npm run test:notifications && npm run test:comment-reads && npm run test:invite-token"
+    "test:calendar": "node scripts/calendar-month-unit.mjs",
+    "test:registration-gate": "node scripts/registration-gate-unit.mjs",
+    "test:unit": "npm run test:today && npm run test:presets && npm run test:notifications && npm run test:comment-reads && npm run test:invite-token && npm run test:calendar && npm run test:registration-gate",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium --with-deps"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
@@ -24,6 +28,7 @@
     "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",

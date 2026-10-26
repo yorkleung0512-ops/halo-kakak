@@ -2,6 +2,10 @@ import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { isPlausibleInviteToken } from '../lib/inviteToken'
+import {
+  requireInviteToCreateUser,
+  shouldCreateUserOnMagicLink,
+} from '../lib/registrationGate'
 
 export default function SignIn() {
   const { signInWithMagicLink, authError } = useAuth()
@@ -12,6 +16,8 @@ export default function SignIn() {
     [inviteRaw],
   )
   const inviteJunk = Boolean(inviteRaw && !inviteOk)
+  const inviteOnlySignup = requireInviteToCreateUser()
+  const allowCreateUser = shouldCreateUserOnMagicLink({ inviteOk })
   const [email, setEmail] = useState('')
   const [lang, setLang] = useState('zh')
   const [sent, setSent] = useState(false)
@@ -26,7 +32,11 @@ export default function SignIn() {
       const redirectTo = inviteOk
         ? `${window.location.origin}/invite/${encodeURIComponent(inviteRaw.trim())}`
         : `${window.location.origin}/auth/callback`
-      await signInWithMagicLink(email, { lang, redirectTo })
+      await signInWithMagicLink(email, {
+        lang,
+        redirectTo,
+        shouldCreateUser: allowCreateUser,
+      })
       setSent(true)
     } catch {
       /* authError set in context */
@@ -100,9 +110,25 @@ export default function SignIn() {
           lang={lang === 'id' ? 'id' : 'zh-Hant'}
           className="mb-3 text-center text-xs text-slate-500"
         >
+          {inviteOnlySignup
+            ? lang === 'id'
+              ? 'Pendaftaran baru memerlukan undangan. Majikan yang sudah punya akun: masuk seperti biasa. Majikan baru: minta operator mengaktifkan akses, atau nonaktifkan VITE_REQUIRE_INVITE.'
+              : '新帳戶需邀請連結。已有帳戶嘅僱主可照常登入。新僱主：請聯絡營運者，或關閉 VITE_REQUIRE_INVITE。'
+            : lang === 'id'
+              ? 'Asisten: gunakan tautan undangan dari majikan. Majikan baru: masuk lalu buat rumah tangga (konfirmasi majikan).'
+              : '姐姐：請用僱主 WhatsApp 邀請連結。新僱主：登入後建立家庭（需確認僱主身份）。'}
+        </p>
+      )}
+
+      {inviteOnlySignup && !inviteOk && (
+        <p
+          role="status"
+          lang={lang === 'id' ? 'id' : 'zh-Hant'}
+          className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+        >
           {lang === 'id'
-            ? 'Asisten: gunakan tautan undangan dari majikan. Majikan baru: masuk lalu buat rumah tangga.'
-            : '姐姐：請用僱主 WhatsApp 邀請連結。新僱主：登入後建立家庭。'}
+            ? 'Mode undangan aktif: email baru tanpa undangan tidak dapat mendaftar. Akun yang sudah ada tetap bisa masuk.'
+            : '邀請限定模式：冇邀請嘅新電郵唔可以註冊；已有帳戶仍可登入。'}
         </p>
       )}
 
