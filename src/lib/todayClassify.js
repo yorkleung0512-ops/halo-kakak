@@ -260,6 +260,34 @@ export function pickNextTask(tasks, ctx = {}) {
 }
 
 /**
+ * Empty-state kind for helper NextTaskHero when there is no heroTask.
+ * - no_tasks: zero tasks today
+ * - all_done: every task completed/cancelled
+ * - focus_above: incomplete work remains in new_task / needs_attention (or elsewhere)
+ * - null: heroTask is present (caller should not use empty UI)
+ *
+ * @param {{ heroTask?: object|null, tasks?: object[], sections?: { new_task?: object[], needs_attention?: object[] } }} args
+ * @returns {'no_tasks'|'all_done'|'focus_above'|null}
+ */
+export function helperHeroEmptyKind({ heroTask, tasks = [], sections = {} } = {}) {
+  if (heroTask) return null
+  if (!tasks.length) return 'no_tasks'
+  const incomplete = tasks.filter(
+    (t) => t && !DONE_STATUSES.has(t.status),
+  )
+  if (!incomplete.length) return 'all_done'
+  // Incomplete work still above (or anywhere) — never claim "all done"
+  if (
+    (sections.new_task && sections.new_task.length > 0) ||
+    (sections.needs_attention && sections.needs_attention.length > 0) ||
+    incomplete.length > 0
+  ) {
+    return 'focus_above'
+  }
+  return 'all_done'
+}
+
+/**
  * Timeline buckets for remaining tasks (after removing higher sections / hero).
  * Groups: overdue | now | later | no_time | completed
  */
