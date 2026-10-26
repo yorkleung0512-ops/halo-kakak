@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    name: Lint, unit tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit — today
+        run: npm run test:today
+
+      - name: Unit — presets
+        run: npm run test:presets
+
+      - name: Unit — notifications
+        run: npm run test:notifications
+
+      - name: Unit — comment reads
+        run: npm run test:comment-reads
+
+      - name: Unit — invite token
+        run: npm run test:invite-token
+
+      - name: Build
+        env:
+          # Placeholder values so Vite build succeeds without secrets.
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ci-placeholder
+        run: npm run build

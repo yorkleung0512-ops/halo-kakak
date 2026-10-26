@@ -9,7 +9,7 @@ import {
 
 const employerTabs = [
   { to: '/', label: '今日', icon: Home, end: true },
-  { to: '/calendar', label: '日曆', icon: CalendarDays },
+  { to: '/calendar', label: '日程', icon: CalendarDays },
   { to: '/history', label: '記錄', icon: ClipboardList },
   { to: '/household', label: '家庭', icon: Users },
   { to: '/settings', label: '設定', icon: Settings },
@@ -17,7 +17,7 @@ const employerTabs = [
 
 const helperTabs = [
   { to: '/', label: 'Hari Ini', icon: Home, end: true },
-  { to: '/calendar', label: 'Kalender', icon: CalendarDays },
+  { to: '/calendar', label: 'Jadwal', icon: CalendarDays },
   { to: '/history', label: 'Riwayat', icon: ClipboardList },
   { to: '/settings', label: 'Pengaturan', icon: Settings },
 ]

@@ -64,32 +64,15 @@ export default function TaskCard({
       : null
     : task.title_id || null
 
-  function openDetail(e) {
-    // Don't open when clicking buttons / interactive controls
-    if (e?.target?.closest?.('button, a, input, select, textarea')) return
-    onOpen?.(task)
-  }
+  const openLabel =
+    lang === 'id'
+      ? `Buka detail: ${primaryTitle || 'tugas'}`
+      : `查看詳情：${primaryTitle || '任務'}`
 
   return (
     <article
       id={htmlId || (task?.id ? `task-${task.id}` : undefined)}
-      tabIndex={onOpen ? 0 : undefined}
-      role={onOpen ? 'button' : undefined}
-      onClick={onOpen ? openDetail : undefined}
-      onKeyDown={
-        onOpen
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                onOpen(task)
-              }
-            }
-          : undefined
-      }
-      aria-label={primaryTitle || 'task'}
-      className={`rounded-2xl border bg-white p-4 shadow-sm outline-none transition ${
-        onOpen ? 'cursor-pointer focus-visible:ring-2 focus-visible:ring-teal-600' : ''
-      } ${
+      className={`rounded-2xl border bg-white p-4 shadow-sm transition ${
         highlight || hero
           ? 'border-teal-400 ring-2 ring-teal-100'
           : task.status === 'completed'
@@ -103,7 +86,7 @@ export default function TaskCard({
                 : 'border-slate-200'
       }`}
     >
-      {/* 1. Due time + title */}
+      {/* 1. Due time + title — open control is a real <button>, sibling to action buttons */}
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-1.5">
@@ -144,7 +127,18 @@ export default function TaskCard({
             lang={isHelperView ? 'id' : 'zh-Hant'}
             className={`font-bold text-slate-900 ${hero ? 'text-lg' : 'text-base'}`}
           >
-            {primaryTitle}
+            {onOpen ? (
+              <button
+                type="button"
+                onClick={() => onOpen(task)}
+                aria-label={openLabel}
+                className="rounded-lg text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-teal-600"
+              >
+                {primaryTitle}
+              </button>
+            ) : (
+              primaryTitle
+            )}
           </h3>
           {secondaryTitle && (
             <p
@@ -265,11 +259,7 @@ export default function TaskCard({
         </div>
       )}
 
-      <div
-        className="flex flex-wrap items-center gap-2"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-      >
+      <div className="flex flex-wrap items-center gap-2">
         {canEdit && !readOnly && onEdit && (
           <button
             type="button"

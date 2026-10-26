@@ -3,24 +3,35 @@ import { useSearchParams } from 'react-router-dom'
 import { useHousehold } from '../lib/household'
 import { supabase } from '../lib/supabase'
 import { todayHK, STATUS_LABELS } from '../lib/constants'
+import LoadingBlock from '../components/LoadingBlock'
 
 export default function Calendar() {
   const { household, effectiveIsHelper } = useHousehold()
   const [date, setDate] = useState(todayHK())
   const [tasks, setTasks] = useState([])
+  const [loading, setLoading] = useState(true)
   const [searchParams] = useSearchParams()
   const templateId = searchParams.get('template')
   const [templateInfo, setTemplateInfo] = useState(null)
 
   useEffect(() => {
     if (!household?.id) return
+    let cancelled = false
+    setLoading(true)
     supabase
       .from('task_occurrences')
       .select('id, title_zh, title_id, status, due_at, template_id')
       .eq('household_id', household.id)
       .eq('task_date', date)
       .is('deleted_at', null)
-      .then(({ data }) => setTasks(data || []))
+      .then(({ data }) => {
+        if (cancelled) return
+        setTasks(data || [])
+        setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [household?.id, date])
 
   useEffect(() => {
@@ -38,13 +49,21 @@ export default function Calendar() {
   }, [templateId])
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" aria-busy={loading}>
       <h1
         lang={effectiveIsHelper ? 'id' : 'zh-Hant'}
         className="text-lg font-bold text-slate-900"
       >
-        {effectiveIsHelper ? 'Kalender' : '日曆'}
+        {effectiveIsHelper ? 'Jadwal per tanggal' : '按日任務'}
       </h1>
+      <p
+        lang={effectiveIsHelper ? 'id' : 'zh-Hant'}
+        className="text-sm text-slate-500"
+      >
+        {effectiveIsHelper
+          ? 'Pilih tanggal untuk melihat daftar tugas (bukan kalender bulanan).'
+          : '揀日期睇嗰日任務清單（唔係月曆檢視）。'}
+      </p>
       {templateId && (
         <div
           role="status"
@@ -80,39 +99,47 @@ export default function Calendar() {
         className="min-h-11 w-full rounded-xl border border-slate-200 px-3"
         aria-label={effectiveIsHelper ? 'Pilih tanggal' : '選擇日期'}
       />
-      <ul className="space-y-2">
-        {tasks.map((t) => {
-          const meta = STATUS_LABELS[t.status] || STATUS_LABELS.pending
-          const hi = templateId && t.template_id === templateId
-          return (
-            <li
-              key={t.id}
-              id={`task-${t.id}`}
-              className={`rounded-xl border bg-white px-4 py-3 ${
-                hi ? 'border-teal-400 ring-2 ring-teal-100' : 'border-slate-200'
-              }`}
-            >
-              <p lang="zh-Hant" className="font-medium">
-                {t.title_zh}
-              </p>
-              {t.title_id && (
-                <p lang="id" className="text-sm text-slate-600">
-                  {t.title_id}
+      {loading ? (
+        <LoadingBlock
+          compact
+          label="載入日程"
+          labelId="Memuat jadwal"
+        />
+      ) : (
+        <ul className="space-y-2">
+          {tasks.map((t) => {
+            const meta = STATUS_LABELS[t.status] || STATUS_LABELS.pending
+            const hi = templateId && t.template_id === templateId
+            return (
+              <li
+                key={t.id}
+                id={`task-${t.id}`}
+                className={`rounded-xl border bg-white px-4 py-3 ${
+                  hi ? 'border-teal-400 ring-2 ring-teal-100' : 'border-slate-200'
+                }`}
+              >
+                <p lang="zh-Hant" className="font-medium">
+                  {t.title_zh}
                 </p>
-              )}
-              <p className="mt-1 text-xs text-slate-500">
-                <span aria-hidden>{meta.icon}</span>{' '}
-                {effectiveIsHelper ? meta.id : meta.zh}
-              </p>
+                {t.title_id && (
+                  <p lang="id" className="text-sm text-slate-600">
+                    {t.title_id}
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-slate-500">
+                  <span aria-hidden>{meta.icon}</span>{' '}
+                  {effectiveIsHelper ? meta.id : meta.zh}
+                </p>
+              </li>
+            )
+          })}
+          {tasks.length === 0 && (
+            <li className="text-center text-slate-500">
+              {effectiveIsHelper ? 'Tidak ada tugas' : '呢日冇任務'}
             </li>
-          )
-        })}
-        {tasks.length === 0 && (
-          <li className="text-center text-slate-500">
-            {effectiveIsHelper ? 'Tidak ada tugas' : '呢日冇任務'}
-          </li>
-        )}
-      </ul>
+          )}
+        </ul>
+      )}
     </div>
   )
 }

@@ -1,11 +1,17 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import { isPlausibleInviteToken } from '../lib/inviteToken'
 
 export default function SignIn() {
   const { signInWithMagicLink, authError } = useAuth()
   const [params] = useSearchParams()
-  const invite = params.get('invite')
+  const inviteRaw = params.get('invite')
+  const inviteOk = useMemo(
+    () => (inviteRaw ? isPlausibleInviteToken(inviteRaw) : false),
+    [inviteRaw],
+  )
+  const inviteJunk = Boolean(inviteRaw && !inviteOk)
   const [email, setEmail] = useState('')
   const [lang, setLang] = useState('zh')
   const [sent, setSent] = useState(false)
@@ -16,8 +22,9 @@ export default function SignIn() {
     if (!email.trim()) return
     setBusy(true)
     try {
-      const redirectTo = invite
-        ? `${window.location.origin}/invite/${invite}`
+      // Soft gate: only attach invite redirect when token looks real (blocks ?invite=test noise).
+      const redirectTo = inviteOk
+        ? `${window.location.origin}/invite/${encodeURIComponent(inviteRaw.trim())}`
         : `${window.location.origin}/auth/callback`
       await signInWithMagicLink(email, { lang, redirectTo })
       setSent(true)
@@ -64,9 +71,45 @@ export default function SignIn() {
         </button>
       </div>
 
+      {inviteOk && (
+        <p
+          role="status"
+          lang={lang === 'id' ? 'id' : 'zh-Hant'}
+          className="mb-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900"
+        >
+          {lang === 'id'
+            ? 'Anda membuka tautan undangan. Setelah masuk, Anda bisa bergabung ke rumah tangga.'
+            : '你正透過邀請連結登入；登入後可以加入家庭。'}
+        </p>
+      )}
+
+      {inviteJunk && (
+        <p
+          role="alert"
+          lang={lang === 'id' ? 'id' : 'zh-Hant'}
+          className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+        >
+          {lang === 'id'
+            ? 'Tautan undangan tidak valid. Minta majikan mengirim ulang tautan WhatsApp yang lengkap.'
+            : '邀請連結無效。請向僱主索取完整 WhatsApp 邀請連結（唔好用測試字串）。'}
+        </p>
+      )}
+
+      {!inviteRaw && (
+        <p
+          lang={lang === 'id' ? 'id' : 'zh-Hant'}
+          className="mb-3 text-center text-xs text-slate-500"
+        >
+          {lang === 'id'
+            ? 'Asisten: gunakan tautan undangan dari majikan. Majikan baru: masuk lalu buat rumah tangga.'
+            : '姐姐：請用僱主 WhatsApp 邀請連結。新僱主：登入後建立家庭。'}
+        </p>
+      )}
+
       <form
         onSubmit={onSubmit}
         className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+        aria-busy={busy}
       >
         {sent ? (
           <div className="space-y-2 text-center">
@@ -107,7 +150,9 @@ export default function SignIn() {
               className="w-full min-h-11 rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-800 disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
             >
               {busy
-                ? '…'
+                ? lang === 'id'
+                  ? 'Mengirim…'
+                  : '發送中…'
                 : lang === 'id'
                   ? 'Kirim tautan masuk'
                   : '發送登入連結'}

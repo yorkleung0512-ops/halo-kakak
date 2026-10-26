@@ -1,26 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useHousehold } from '../lib/household'
-
-/** Pull invite token from a pasted URL or raw token. */
-function parseInviteToken(raw) {
-  const s = (raw || '').trim()
-  if (!s) return ''
-  try {
-    if (s.includes('/invite/')) {
-      const u = new URL(s, window.location.origin)
-      const parts = u.pathname.split('/').filter(Boolean)
-      const i = parts.indexOf('invite')
-      if (i >= 0 && parts[i + 1]) return decodeURIComponent(parts[i + 1])
-    }
-  } catch {
-    /* fall through — treat as raw token */
-  }
-  // Raw token (no URL)
-  const m = s.match(/invite\/([^/?#\s]+)/i)
-  if (m) return decodeURIComponent(m[1])
-  return s.replace(/^\/+/, '')
-}
+import { isPlausibleInviteToken, parseInviteToken } from '../lib/inviteToken'
 
 export default function CreateHousehold() {
   const { createHousehold } = useHousehold()
@@ -49,9 +30,9 @@ export default function CreateHousehold() {
     e.preventDefault()
     setInviteError(null)
     const token = parseInviteToken(inviteInput)
-    if (!token) {
+    if (!token || !isPlausibleInviteToken(token)) {
       setInviteError(
-        '請貼上邀請連結或 token / Tempel tautan undangan atau token',
+        '請貼上完整邀請連結或 token（至少 16 字） / Tempel tautan undangan lengkap atau token',
       )
       return
     }
@@ -110,6 +91,7 @@ export default function CreateHousehold() {
       <form
         onSubmit={onSubmit}
         className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+        aria-busy={busy}
       >
         <h1 lang="zh-Hant" className="text-xl font-bold">
           建立家庭
@@ -139,7 +121,9 @@ export default function CreateHousehold() {
           disabled={busy}
           className="w-full min-h-11 rounded-xl bg-slate-800 font-bold text-white"
         >
-          {busy ? '…' : (
+          {busy ? (
+            <span lang="zh-Hant">建立中…</span>
+          ) : (
             <>
               <span lang="zh-Hant">建立</span>
               <span className="mx-1 opacity-70">/</span>

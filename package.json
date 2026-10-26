@@ -12,7 +12,9 @@
     "test:rls": "node scripts/rls-smoke.mjs",
     "test:notifications": "node scripts/notifications-unit.mjs",
     "test:today": "node scripts/today-unit.mjs",
-    "test:comment-reads": "node scripts/comment-reads-unit.mjs"
+    "test:comment-reads": "node scripts/comment-reads-unit.mjs",
+    "test:invite-token": "node scripts/invite-token-unit.mjs",
+    "test:unit": "npm run test:today && npm run test:presets && npm run test:notifications && npm run test:comment-reads && npm run test:invite-token"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

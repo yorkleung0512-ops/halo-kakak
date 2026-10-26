@@ -362,7 +362,7 @@ export default function PresetEditor({
             onClick={save}
             className="min-h-11 flex-1 rounded-xl bg-teal-700 font-bold text-white disabled:opacity-50"
           >
-            {busy ? '…' : '儲存'}
+            {busy ? '儲存中…' : '儲存'}
           </button>
         </div>
       </div>

@@ -19,6 +19,7 @@ import History from './pages/History'
 import HouseholdPage from './pages/Household'
 import Settings from './pages/Settings'
 import Legal from './pages/Legal'
+import LoadingBlock from './components/LoadingBlock'
 
 function DocumentLang({ isHelper }) {
   useEffect(() => {
@@ -77,8 +78,8 @@ function ProtectedApp() {
 
   if (loading || hhLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-slate-500">
-        …
+      <div className="flex min-h-screen items-center justify-center px-4">
+        <LoadingBlock className="w-full max-w-sm" />
       </div>
     )
   }
