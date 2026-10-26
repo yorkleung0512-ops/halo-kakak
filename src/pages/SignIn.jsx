@@ -35,10 +35,15 @@ export default function SignIn() {
           🏠
         </div>
         <h1 lang="zh-Hant" className="text-2xl font-bold text-slate-900">
-          Hola-Kakak
+          Halo Kakak
         </h1>
-        <p lang="id" className="text-sm text-slate-500">
-          Hola-Kakak
+        <p
+          lang={lang === 'id' ? 'id' : 'zh-Hant'}
+          className="mt-2 text-sm text-slate-600"
+        >
+          {lang === 'id'
+            ? 'Tugas rumah tangga yang jelas antara majikan Hong Kong dan asisten rumah tangga Indonesia.'
+            : '香港僱主同印尼籍家傭嘅雙語家務協作。'}
         </p>
       </div>
 
@@ -48,7 +53,7 @@ export default function SignIn() {
           onClick={() => setLang('zh')}
           className={`min-h-11 rounded-lg px-3 text-sm font-semibold ${lang === 'zh' ? 'bg-teal-700 text-white' : 'bg-slate-100 text-slate-600'}`}
         >
-          繁中
+          中文
         </button>
         <button
           type="button"
@@ -119,13 +124,16 @@ export default function SignIn() {
         )}
       </form>
 
-      <p className="mt-6 text-center text-xs text-slate-500">
+      <p
+        lang={lang === 'id' ? 'id' : 'zh-Hant'}
+        className="mt-6 text-center text-xs text-slate-500"
+      >
         <Link to="/privacy" className="underline">
-          Privacy
+          {lang === 'id' ? 'Privasi' : '私隱'}
         </Link>
         {' · '}
         <Link to="/terms" className="underline">
-          Terms
+          {lang === 'id' ? 'Syarat' : '條款'}
         </Link>
         {' · '}
         <Link to="/pics" className="underline">
