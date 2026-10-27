@@ -60,25 +60,28 @@ export function AuthProvider({ children }) {
     }
   }, [refreshProfile])
 
-  const signInWithMagicLink = useCallback(async (email, { lang = 'zh', redirectTo } = {}) => {
-    setAuthError(null)
-    const redirect =
-      redirectTo ||
-      `${window.location.origin}/auth/callback${window.location.search || ''}`
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        emailRedirectTo: redirect,
-        shouldCreateUser: true,
-      },
-    })
-    if (error) {
-      const msg = mapAuthError(error, lang)
-      setAuthError(msg)
-      throw new Error(msg)
-    }
-    return true
-  }, [])
+  const signInWithMagicLink = useCallback(
+    async (email, { lang = 'zh', redirectTo, shouldCreateUser = true } = {}) => {
+      setAuthError(null)
+      const redirect =
+        redirectTo ||
+        `${window.location.origin}/auth/callback${window.location.search || ''}`
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          emailRedirectTo: redirect,
+          shouldCreateUser: Boolean(shouldCreateUser),
+        },
+      })
+      if (error) {
+        const msg = mapAuthError(error, lang)
+        setAuthError(msg)
+        throw new Error(msg)
+      }
+      return true
+    },
+    [],
+  )
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut()
